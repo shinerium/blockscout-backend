@@ -7,6 +7,10 @@ defmodule EthereumJSONRPC.Blocks do
 
   alias EthereumJSONRPC.{Block, Transactions, Transport, Uncles, Withdrawals}
 
+
+# SHN
+require Logger
+
   @type elixir :: [Block.elixir()]
   @type params :: [Block.params()]
 
@@ -102,6 +106,7 @@ defmodule EthereumJSONRPC.Blocks do
   """
   @spec from_responses(EthereumJSONRPC.Transport.batch_response(), %{EthereumJSONRPC.request_id() => map()}) :: t()
   def from_responses(responses, id_to_params) when is_list(responses) and is_map(id_to_params) do
+Logger.info("*** Blocks.from_responses/2   responses= #{inspect(responses, pretty: true, limit: :infinity)}    id_to_params= #{inspect(id_to_params, pretty: true, limit: :infinity)}")
     %{errors: errors, blocks: blocks} =
       responses
       |> EthereumJSONRPC.sanitize_responses(id_to_params)
@@ -113,8 +118,14 @@ defmodule EthereumJSONRPC.Blocks do
         {:error, error}, %{errors: errors} = acc ->
           %{acc | errors: [error | errors]}
       end)
-
+# SHN
+#Logger.info("*** Blocks.from_response id_to_params: #{inspect(id_to_params, pretty: true, limit: :infinity)}")
+#Logger.info("*** Blocks.from_response responses: #{inspect(responses, pretty: true, limit: :infinity)}")
+#Logger.info("*** Blocks.from_response blocks: #{inspect(blocks, pretty: true, limit: :infinity)}")
     elixir_blocks = to_elixir(blocks)
+
+
+Logger.info("*** Blocks.from_response elixir_blocks: #{inspect(elixir_blocks, pretty: true, limit: :infinity)}")
 
     elixir_uncles = elixir_to_uncles(elixir_blocks)
     elixir_transactions = elixir_to_transactions(elixir_blocks)

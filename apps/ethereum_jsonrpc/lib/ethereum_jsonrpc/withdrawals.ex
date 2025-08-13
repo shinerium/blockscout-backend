@@ -4,6 +4,10 @@ defmodule EthereumJSONRPC.Withdrawals do
   `eth_getBlockByHash` and `eth_getBlockByNumber`
   """
 
+
+#shn
+require Logger
+
   alias EthereumJSONRPC.Withdrawal
 
   @type elixir :: [Withdrawal.elixir()]
@@ -36,6 +40,7 @@ defmodule EthereumJSONRPC.Withdrawals do
   """
   @spec elixir_to_params(elixir) :: params
   def elixir_to_params(elixir) when is_list(elixir) do
+    Logger.info("*** withdrawal.to_elixir/1. elixir = #{inspect(elixir, pretty: true, limit: :infinity)}")
     Enum.map(elixir, &Withdrawal.elixir_to_params/1)
   end
 
@@ -62,6 +67,7 @@ defmodule EthereumJSONRPC.Withdrawals do
   """
   @spec to_elixir([%{String.t() => String.t()}], String.t(), non_neg_integer()) :: elixir
   def to_elixir(withdrawals, block_hash, block_number) when is_list(withdrawals) do
+Logger.info("*** withdrawal.to_elixir/3")
     Enum.map(withdrawals, &Withdrawal.to_elixir(&1, block_hash, block_number))
   end
 end

@@ -617,6 +617,7 @@ defmodule EthereumJSONRPC do
 
   @spec id_to_params([params]) :: %{id => params} when id: non_neg_integer(), params: any()
   def id_to_params(params_list) do
+Logger.info("*** id_to_params/1")
     params_list
     |> Stream.with_index()
     |> Enum.into(%{}, fn {params, id} -> {id, params} end)
@@ -907,6 +908,7 @@ defmodule EthereumJSONRPC do
           {:ok, Blocks.t()} | {:error, reason :: term()}
   defp fetch_blocks_by_params(params, request, json_rpc_named_arguments)
        when is_list(params) and is_function(request, 1) do
+Logger.info( "*** fetch_blocks_by_params/3")
     id_to_params = id_to_params(params)
 
     with {:ok, responses} <-

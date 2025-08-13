@@ -84,6 +84,8 @@ defmodule Explorer.ReleaseTasks do
     app = Keyword.get(repo.config, :otp_app)
     IO.puts("Running migrations for #{app}")
     migrations_path = priv_path_for(repo, "migrations")
+    # SHN
+    IO.puts("Migrating from folder #{migrations_path}")
     Migrator.run(repo, migrations_path, :up, all: true)
   end
 

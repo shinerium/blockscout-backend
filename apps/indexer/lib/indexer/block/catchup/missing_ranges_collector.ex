@@ -61,6 +61,9 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
   use GenServer
   use Utils.CompileTimeEnvHelper, future_check_interval: [:indexer, [__MODULE__, :future_check_interval]]
 
+  # SHN
+  require(Logger)
+
   alias EthereumJSONRPC.Utility.RangesHelper
   alias Explorer.{Chain, Helper, Repo}
   alias Explorer.Chain.Cache.Counters.LastFetchedCounter
@@ -398,6 +401,8 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
   # Retrieves the highest block number from blockchain.
   @spec fetch_max_block_number_from_node() :: non_neg_integer()
   defp fetch_max_block_number_from_node do
+    # SHN
+    Logger.info("*** indexer: fetch_max_block_number_from_node")
     json_rpc_named_arguments = Application.get_env(:indexer, :json_rpc_named_arguments)
 
     case EthereumJSONRPC.fetch_block_number_by_tag("latest", json_rpc_named_arguments) do
