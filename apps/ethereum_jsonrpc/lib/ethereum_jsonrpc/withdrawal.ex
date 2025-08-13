@@ -6,6 +6,8 @@ defmodule EthereumJSONRPC.Withdrawal do
 
   import EthereumJSONRPC, only: [quantity_to_integer: 1]
 
+  require Logger   # SHN
+
   @type elixir :: %{
           String.t() => EthereumJSONRPC.address() | EthereumJSONRPC.hash() | String.t() | non_neg_integer() | nil
         }
@@ -27,7 +29,10 @@ defmodule EthereumJSONRPC.Withdrawal do
           address_hash: EthereumJSONRPC.address(),
           block_hash: EthereumJSONRPC.hash(),
           block_number: non_neg_integer(),
-          amount: non_neg_integer()
+          amount: non_neg_integer(),
+          # SHN: additional types:
+          reward_type: non_neg_integer(),
+          validator: EthereniumJSONRPC.address()
         }
 
   @doc """
@@ -59,7 +64,9 @@ defmodule EthereumJSONRPC.Withdrawal do
         "address" => address_hash,
         "amount" => amount,
         "blockHash" => block_hash,
-        "blockNumber" => block_number
+        "blockNumber" => block_number,
+        "rewardType" => reward_type,
+        "validator" => validator
       }) do
     %{
       index: index,
@@ -67,7 +74,9 @@ defmodule EthereumJSONRPC.Withdrawal do
       address_hash: address_hash,
       block_hash: block_hash,
       block_number: block_number,
-      amount: amount * 1_000_000_000
+      amount: amount * 1_000_000_000,
+      reward_type: reward_type,
+      validator: validator
     }
   end
 
@@ -93,9 +102,11 @@ defmodule EthereumJSONRPC.Withdrawal do
   """
   @spec to_elixir(%{String.t() => String.t()}, String.t(), non_neg_integer()) :: elixir
   def to_elixir(withdrawal, block_hash, block_number) when is_map(withdrawal) do
+    Logger.info("*** withdrawal.to_elixir")
     Enum.into(withdrawal, %{"blockHash" => block_hash, "blockNumber" => block_number}, &entry_to_elixir/1)
   end
 
   defp entry_to_elixir({key, value}) when key in ~w(index validatorIndex amount), do: {key, quantity_to_integer(value)}
   defp entry_to_elixir({key, value}) when key in ~w(address), do: {key, value}
+  defp entry_to_elixir({key, value}) when key in ~w(rewardType validator), do: {key, value}
 end

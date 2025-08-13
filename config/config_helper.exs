@@ -26,7 +26,9 @@ defmodule ConfigHelper do
         suave: Explorer.Repo.Suave,
         zilliqa: Explorer.Repo.Zilliqa,
         zksync: Explorer.Repo.ZkSync,
-        neon: Explorer.Repo.Neon
+        neon: Explorer.Repo.Neon,
+        # SHN
+        shinerium: Explorer.Repo.Shinerium
       }
       |> Map.get(chain_type())
 
@@ -324,7 +326,9 @@ defmodule ConfigHelper do
     "zetachain",
     "zilliqa",
     "zksync",
-    "neon"
+    "neon",
+# SHN shinerium added
+    "shinerium"
   ]
 
   @spec chain_type() :: atom() | nil

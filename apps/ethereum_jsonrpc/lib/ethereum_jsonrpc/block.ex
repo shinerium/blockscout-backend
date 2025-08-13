@@ -7,6 +7,9 @@ defmodule EthereumJSONRPC.Block do
 
   import EthereumJSONRPC, only: [quantity_to_integer: 1, timestamp_to_datetime: 1]
 
+
+  require Logger
+
   alias EthereumJSONRPC.{Transactions, Uncles, Withdrawals}
 
   alias EthereumJSONRPC.Zilliqa.AggregateQuorumCertificate, as: ZilliqaAggregateQuorumCertificate
@@ -30,6 +33,7 @@ defmodule EthereumJSONRPC.Block do
                          )
 
     :ethereum ->
+      Logger.info("*** ethereumm")
       @chain_type_fields quote(
                            do: [
                              {optional(:withdrawals_root), EthereumJSONRPC.hash()},
@@ -37,6 +41,27 @@ defmodule EthereumJSONRPC.Block do
                              {optional(:excess_blob_gas), non_neg_integer()}
                            ]
                          )
+#SHN shinerium fields to block
+:shinerium ->
+  Logger.info("*** block.ex shinerium")
+  @chain_type_fields quote(
+    do:
+    [
+                      {optional(:withdrawals_root), EthereumJSONRPC.hash()},
+                      {optional(:blob_gas_used), non_neg_integer()},
+                      {optional(:excess_blob_gas), non_neg_integer()},
+                      {optional(:block_type), non_neg_integer()},
+                      {optional(:key_hash), EthereumJSONRPC.hash()},
+                      {optional(:key_number), non_neg_integer()},
+                      {optional(:pow_miner), EthereumJSONRPC.hash()},
+                      {optional(:reward), non_neg_integer()},
+                      {optional(:withdrawal_base_index), non_neg_integer()},
+                      {optional(:tx_count), non_neg_integer()},
+                      {optional(:anchor_chain_hash), EthreumJSONRPC.hash()}
+
+    ]
+  )
+
 
     :arbitrum ->
       @chain_type_fields quote(
@@ -159,18 +184,26 @@ defmodule EthereumJSONRPC.Block do
           {:error, %{:data => any(), optional(any()) => any()}} | {:ok, any()}
   def from_response(%{id: id, result: nil}, id_to_params) when is_map(id_to_params) do
     params = Map.fetch!(id_to_params, id)
-
+Logger.info("*** from response 1")
     {:error, %{code: 404, message: "Not Found", data: params}}
   end
 
-  def from_response(%{id: id, result: block}, id_to_params) when is_map(id_to_params) do
-    true = Map.has_key?(id_to_params, id)
 
+# JV tutkii onko annettu id mukana block:ssa. Esim. id = 0, blockssa pitää olla id: 0
+# silloin id_to_params = %{0 => %{tag: "latest"}}
+  def from_response(%{id: id, result: block}, id_to_params) when is_map(id_to_params) do
+  #  IO.inspect(responses, label: "BLOCK RESPONSES")
+Logger.info("*** from response 2 id: #{inspect(id)}")
+#Logger.info("*** from response params: #{inspect(id_to_params, pretty: true, limit: :infinity)}")
+    true = Map.has_key?(id_to_params, id)
+    # SHN
+Logger.info("*** SHINERIUM block header:\n#{inspect(block, pretty: true, limit: :infinity)}")
     {:ok, block}
   end
 
   def from_response(%{id: id, error: error}, id_to_params) when is_map(id_to_params) do
     params = Map.fetch!(id_to_params, id)
+Logger.info("*** From response 3")
     annotated_error = Map.put(error, :data, params)
 
     {:error, annotated_error}
@@ -355,6 +388,8 @@ defmodule EthereumJSONRPC.Block do
   """
   @spec elixir_to_params(elixir) :: params
   def elixir_to_params(elixir) do
+    #Logger.info("*** elixir_to_params")
+    Logger.info("*** elixir_to_params. elixir = #{inspect(elixir, pretty: true, limit: :infinity)}")
     elixir
     |> do_elixir_to_params()
     |> chain_type_fields(elixir)
@@ -380,6 +415,7 @@ defmodule EthereumJSONRPC.Block do
            "baseFeePerGas" => base_fee_per_gas
          } = elixir
        ) do
+Logger.info("*** do_elixir_to_params 1")
     %{
       difficulty: difficulty,
       extra_data: extra_data,
@@ -425,6 +461,7 @@ defmodule EthereumJSONRPC.Block do
            "baseFeePerGas" => base_fee_per_gas
          } = elixir
        ) do
+Logger.info("*** do_elixir_to_params 2")
     %{
       difficulty: difficulty,
       extra_data: extra_data,
@@ -469,6 +506,7 @@ defmodule EthereumJSONRPC.Block do
            "transactionsRoot" => transactions_root
          } = elixir
        ) do
+Logger.info("*** do_elixir_to_params 3")
     %{
       difficulty: difficulty,
       extra_data: extra_data,
@@ -513,6 +551,7 @@ defmodule EthereumJSONRPC.Block do
            "transactionsRoot" => transactions_root
          } = elixir
        ) do
+Logger.info("*** do_elixir_to_params 4")
     %{
       difficulty: difficulty,
       extra_data: extra_data,
@@ -553,6 +592,7 @@ defmodule EthereumJSONRPC.Block do
 
     :ethereum ->
       defp chain_type_fields(params, elixir) do
+Logger.info("*** ETHEREUM Chain type fields!")
         params
         |> Map.merge(%{
           withdrawals_root:
@@ -577,6 +617,29 @@ defmodule EthereumJSONRPC.Block do
         params
         |> Map.merge(%{
           zilliqa_view: Map.get(elixir, "view")
+        })
+      end
+
+# SHN: shinerium chain fields
+    :shinerium ->
+      defp chain_type_fields(params, elixir) do
+Logger.info("*** SHINERIUM Chain type fields!")
+        params
+        |> Map.merge(%{
+      block_type: Map.get(elixir, "blockType"),
+      key_number: Map.get(elixir, "KeyNumber"),
+      key_hash: Map.get(elixir, "keyHash"),
+      key_info: Map.get(elixir, "keyInfo"),
+      pow_miner: Map.get(elixir, "powMiner"),
+      reward: Map.get(elixir, "reward"),
+      withdrawal_base_index: Map.get(elixir, "withdrawalBaseIndex"),
+      tx_count: Map.get(elixir, "txCount"),
+      sign_info: Map.get(elixir, "signInfo"),
+          withdrawals_root:
+            Map.get(elixir, "withdrawalsRoot", "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"),
+          blob_gas_used: Map.get(elixir, "blobGasUsed", 0),
+          excess_blob_gas: Map.get(elixir, "excessBlobGas", 0),
+          anchor_chain_hash: Map.get(elixir, "anchorChainHash")
         })
       end
 
@@ -909,19 +972,22 @@ defmodule EthereumJSONRPC.Block do
 
   """
   def to_elixir(block) when is_map(block) do
+    # SHN
+    Logger.info("*** to_elixir/1  block = #{inspect(block, pretty: true, limit: :infinity)}")
     Enum.into(block, %{}, &entry_to_elixir(&1, block))
   end
 
   defp entry_to_elixir({key, quantity}, _block)
        when key in ~w(difficulty gasLimit gasUsed minimumGasPrice baseFeePerGas number size
                       cumulativeDifficulty totalDifficulty paidFees blobGasUsed
-                      excessBlobGas l1BlockNumber sendCount) and
-              not is_nil(quantity) do
+                      excessBlobGas l1BlockNumber sendCount) and not is_nil(quantity) do
+                  Logger.info("*** entry_to_elixir key,quantity  key= #{inspect(key)} quantity=#{inspect(quantity)}")
     {key, quantity_to_integer(quantity)}
   end
 
   # Size and totalDifficulty may be `nil` for uncle blocks
   defp entry_to_elixir({key, nil}, _block) when key in ~w(size totalDifficulty) do
+    Logger.info("*** entry_to_elixir key, nil")
     {key, nil}
   end
 
@@ -932,25 +998,44 @@ defmodule EthereumJSONRPC.Block do
        when key in ~w(author extraData hash logsBloom miner mixHash nonce parentHash receiptsRoot
                       sealFields sha3Uncles signature stateRoot step transactionsRoot uncles
                       withdrawalsRoot bitcoinMergedMiningHeader bitcoinMergedMiningCoinbaseTransaction
-                      bitcoinMergedMiningMerkleProof hashForMergedMining sendRoot),
-       do: entry
+                      bitcoinMergedMiningMerkleProof hashForMergedMining sendRoot) do
+       # do: entry
+         Logger.info("entry_to_elixir (key, _): matching known key #{inspect(key)} with entry #{inspect(entry)}")
+         entry
+  end
+
 
   defp entry_to_elixir({"timestamp" = key, timestamp}, _block) do
+    Logger.info("*** entry_to_elixir timestamp.  stamp = #{inspect(timestamp)}")
     {key, timestamp_to_datetime(timestamp)}
   end
 
   defp entry_to_elixir({"transactions" = key, transactions}, %{"timestamp" => block_timestamp}) do
+    Logger.info("*** entry_to_elixir transactions = key, transactions   key= #{inspect(key)}     ")
     {key, Transactions.to_elixir(transactions, timestamp_to_datetime(block_timestamp))}
   end
 
   defp entry_to_elixir({"withdrawals" = key, nil}, _block) do
+    Logger.info("*** entry_to_elixir withdrawals nil ")
     {key, []}
   end
 
+
+# SHN requires handler for empty list
+defp entry_to_elixir({"withdrawals" = key, value}, _block)
+     when value == [] do
+  Logger.info("*** entry_to_elixir withdrawals empty or nil — default to []")
+  {key, []}
+end
+
   defp entry_to_elixir({"withdrawals" = key, withdrawals}, %{"hash" => block_hash, "number" => block_number})
        when not is_nil(block_number) do
+        Logger.info("*** Withdrawals")   # SHN
     {key, Withdrawals.to_elixir(withdrawals, block_hash, quantity_to_integer(block_number))}
   end
+
+
+
 
   case @chain_type do
     :zilliqa ->
@@ -968,9 +1053,27 @@ defmodule EthereumJSONRPC.Block do
         {key, EthereumJSONRPC.Zilliqa.AggregateQuorumCertificate.new(entry, block_hash)}
       end
 
+  :shinerium ->
+  defp entry_to_elixir({key, quantity}, _block)
+       when key in ~w(keyNumber txCount blockType withdrawalBaseIndex reward)
+       and not is_nil(quantity) do
+    Logger.info("*** SHN entry_to_elixir quantity. key = #{inspect(key)} quantity = #{inspect(quantity)}")
+    {key, quantity_to_integer(quantity)}
+  end
+
+  defp entry_to_elixir({key, value} = entry, _block)
+       when key in ~w(powMiner anchorChainHash keyHash)
+       and not is_nil(value) do
+    Logger.info("*** SHN entry_to_elixir value. key = #{inspect(key)} entry: #{inspect(entry)}")
+    entry
+  end
+
     _ ->
       :ok
   end
+
+
+
 
   # bitcoinMergedMiningCoinbaseTransaction bitcoinMergedMiningHeader bitcoinMergedMiningMerkleProof hashForMergedMining - RSK https://github.com/blockscout/blockscout/pull/2934
   # committedSeals committee pastCommittedSeals proposerSeal round - Autonity network https://github.com/blockscout/blockscout/pull/3480
@@ -979,6 +1082,7 @@ defmodule EthereumJSONRPC.Block do
   # vrf vrfProof - Harmony
   # ...
   defp entry_to_elixir({_, _}, _block) do
+    Logger.info("*** entry_to_elixir ignore ignore")
     {:ignore, :ignore}
   end
 end

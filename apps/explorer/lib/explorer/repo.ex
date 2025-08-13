@@ -152,7 +152,9 @@ defmodule Explorer.Repo do
         Explorer.Repo.Suave,
         Explorer.Repo.Zilliqa,
         Explorer.Repo.ZkSync,
-        Explorer.Repo.Neon
+        Explorer.Repo.Neon,
+        # SHN repo
+        Explorer.Repo.Shinerium
       ] do
     defmodule repo do
       use Ecto.Repo,

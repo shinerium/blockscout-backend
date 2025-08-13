@@ -15,6 +15,9 @@ defmodule Explorer.Chain.Withdrawal do
     field(:index, :integer, primary_key: true, null: false)
     field(:validator_index, :integer, null: false)
     field(:amount, Wei, null: false)
+    # SHN additional fields
+    field(:reward_type, :integer, null: false )
+    field(:validator, Hash.Address, null: false )
 
     belongs_to(:address, Address,
       foreign_key: :address_hash,
@@ -39,7 +42,7 @@ defmodule Explorer.Chain.Withdrawal do
         ) :: Ecto.Changeset.t()
   def changeset(%__MODULE__{} = withdrawal, attrs \\ %{}) do
     withdrawal
-    |> cast(attrs, @required_attrs)
+    |> cast(attrs, @required_attrs, [:reward_type, :validator] )    # SHN additional fields
     |> validate_required(@required_attrs)
     |> unique_constraint(:index, name: :withdrawals_pkey)
   end

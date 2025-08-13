@@ -29,6 +29,15 @@ defmodule EthereumJSONRPC.Transaction do
                            ]
                          )
 
+# SHN transaction fields
+    :shinerium ->
+      @chain_type_fields quote(
+                           do: [
+                             version: non_neg_integer(),
+                             shn_metadata_hash: [EthereumJSONRPC.hash()]
+                           ]
+                         )
+
     :optimism ->
       @chain_type_fields quote(
                            do: [
@@ -535,6 +544,16 @@ defmodule EthereumJSONRPC.Transaction do
           {"blobVersionedHashes", :blob_versioned_hashes},
           {"maxFeePerBlobGas", :max_fee_per_blob_gas}
         ])
+
+
+# SHN transaction fields mapping
+      :shinerium ->
+        put_if_present(params, elixir, [
+          {"version", :version},
+          {"shnMetadataHash", :shn_metadata_hash}
+        ])
+
+
 
       :optimism ->
         # we need to put blobVersionedHashes for Indexer.Fetcher.Optimism.TransactionBatch module
