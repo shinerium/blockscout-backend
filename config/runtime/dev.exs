@@ -131,7 +131,9 @@ for repo <- [
       # Feature dependent repos
       Explorer.Repo.BridgedTokens,
       Explorer.Repo.ShrunkInternalTransactions,
-      Explorer.Repo.Neon
+      Explorer.Repo.Neon,
+      # SHN repo
+      Explorer.Repo.Shinerium
     ] do
   config :explorer, repo,
     database: database,
