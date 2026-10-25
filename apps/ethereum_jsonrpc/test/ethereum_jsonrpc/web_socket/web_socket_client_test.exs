@@ -47,6 +47,19 @@ defmodule EthereumJSONRPC.WebSocket.WebSocketClientTest do
     end
   end
 
+  describe "handle_ping/2" do
+    setup :example_state
+
+    test "answers a ping without payload, as go-ethereum sends on an idle connection", %{state: state} do
+      assert {:reply, :pong, ^state} = WebSocketClient.handle_ping(:ping, state)
+    end
+
+    test "answers a ping with payload with a pong with the same payload", %{state: state} do
+      assert {:reply, {:pong, "x"}, ^state} = WebSocketClient.handle_ping({:ping, "x"}, state)
+      assert {:reply, {:pong, ""}, ^state} = WebSocketClient.handle_ping({:ping, ""}, state)
+    end
+  end
+
   describe "handle_frame/2" do
     setup :example_state
 

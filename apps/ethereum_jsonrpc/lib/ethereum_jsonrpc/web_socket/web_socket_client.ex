@@ -150,8 +150,16 @@ defmodule EthereumJSONRPC.WebSocket.WebSocketClient do
     end
   end
 
-  def handle_ping({:ping, ""}, state) do
-    {:reply, {:pong, ""}, state}
+  # WebSockex parses a ping without payload as `:ping`, not `{:ping, ""}`.
+  # go-ethereum sends such pings after 60 s without traffic; without this
+  # clause the client crashes on the first one, which ends the newHeads
+  # subscription on a chain whose blocks are further apart.
+  def handle_ping(:ping, state) do
+    {:reply, :pong, state}
+  end
+
+  def handle_ping({:ping, payload}, state) do
+    {:reply, {:pong, payload}, state}
   end
 
   def handle_pong({:pong, _}, state) do
