@@ -1264,6 +1264,11 @@ defmodule BlockScoutWeb.API.V2.TransactionView do
     BlockScoutWeb.API.V2.ZilliqaView.extend_transaction_json_response(result, transaction)
   end
 
+  defp do_with_chain_type_fields(result, :shinerium, transaction, _single_tx?, _conn, _watchlist_names) do
+    # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+    BlockScoutWeb.API.V2.ShineriumView.extend_transaction_json_response(result, transaction)
+  end
+
   defp do_with_chain_type_fields(result, _chain_type, _transaction, _single_transaction?, _conn, _watchlist_names) do
     result
   end

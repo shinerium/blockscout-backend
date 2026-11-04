@@ -28,6 +28,7 @@ for repo <- [
       Explorer.Repo.RSK,
       Explorer.Repo.Scroll,
       Explorer.Repo.Shibarium,
+      Explorer.Repo.Shinerium,
       Explorer.Repo.Stability,
       Explorer.Repo.Suave,
       Explorer.Repo.Zilliqa,

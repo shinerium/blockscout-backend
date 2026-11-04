@@ -6,6 +6,8 @@ defmodule Explorer.Chain.Import.Runner.Withdrawals do
 
   require Ecto.Query
 
+  use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
+
   alias Ecto.{Changeset, Multi, Repo}
   alias Explorer.Chain.{Import, Withdrawal}
   alias Explorer.Prometheus.Instrumenter
@@ -81,27 +83,57 @@ defmodule Explorer.Chain.Import.Runner.Withdrawals do
       )
   end
 
-  defp default_on_conflict do
-    from(
-      withdrawal in Withdrawal,
-      update: [
-        set: [
-          validator_index: fragment("EXCLUDED.validator_index"),
-          amount: fragment("EXCLUDED.amount"),
-          address_hash: fragment("EXCLUDED.address_hash"),
-          block_hash: fragment("EXCLUDED.block_hash"),
-          inserted_at: fragment("LEAST(?, EXCLUDED.inserted_at)", withdrawal.inserted_at),
-          updated_at: fragment("GREATEST(?, EXCLUDED.updated_at)", withdrawal.updated_at)
-        ]
-      ],
-      where:
-        fragment(
-          "(EXCLUDED.validator_index, EXCLUDED.amount, EXCLUDED.address_hash, EXCLUDED.block_hash) IS DISTINCT FROM (?, ?, ?, ?)",
-          withdrawal.validator_index,
-          withdrawal.amount,
-          withdrawal.address_hash,
-          withdrawal.block_hash
-        )
-    )
+  if @chain_type == :shinerium do
+    defp default_on_conflict do
+      from(
+        withdrawal in Withdrawal,
+        update: [
+          set: [
+            validator_index: fragment("EXCLUDED.validator_index"),
+            amount: fragment("EXCLUDED.amount"),
+            address_hash: fragment("EXCLUDED.address_hash"),
+            block_hash: fragment("EXCLUDED.block_hash"),
+            shn_reward_type: fragment("EXCLUDED.shn_reward_type"),
+            shn_validator_hash: fragment("EXCLUDED.shn_validator_hash"),
+            inserted_at: fragment("LEAST(?, EXCLUDED.inserted_at)", withdrawal.inserted_at),
+            updated_at: fragment("GREATEST(?, EXCLUDED.updated_at)", withdrawal.updated_at)
+          ]
+        ],
+        where:
+          fragment(
+            "(EXCLUDED.validator_index, EXCLUDED.amount, EXCLUDED.address_hash, EXCLUDED.block_hash, EXCLUDED.shn_reward_type, EXCLUDED.shn_validator_hash) IS DISTINCT FROM (?, ?, ?, ?, ?, ?)",
+            withdrawal.validator_index,
+            withdrawal.amount,
+            withdrawal.address_hash,
+            withdrawal.block_hash,
+            withdrawal.shn_reward_type,
+            withdrawal.shn_validator_hash
+          )
+      )
+    end
+  else
+    defp default_on_conflict do
+      from(
+        withdrawal in Withdrawal,
+        update: [
+          set: [
+            validator_index: fragment("EXCLUDED.validator_index"),
+            amount: fragment("EXCLUDED.amount"),
+            address_hash: fragment("EXCLUDED.address_hash"),
+            block_hash: fragment("EXCLUDED.block_hash"),
+            inserted_at: fragment("LEAST(?, EXCLUDED.inserted_at)", withdrawal.inserted_at),
+            updated_at: fragment("GREATEST(?, EXCLUDED.updated_at)", withdrawal.updated_at)
+          ]
+        ],
+        where:
+          fragment(
+            "(EXCLUDED.validator_index, EXCLUDED.amount, EXCLUDED.address_hash, EXCLUDED.block_hash) IS DISTINCT FROM (?, ?, ?, ?)",
+            withdrawal.validator_index,
+            withdrawal.amount,
+            withdrawal.address_hash,
+            withdrawal.block_hash
+          )
+      )
+    end
   end
 end

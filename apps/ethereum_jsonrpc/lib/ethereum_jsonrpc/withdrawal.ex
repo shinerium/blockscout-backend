@@ -5,6 +5,8 @@ defmodule EthereumJSONRPC.Withdrawal do
   `eth_getBlockByHash` and `eth_getBlockByNumber`
   """
 
+  use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
+
   import EthereumJSONRPC, only: [quantity_to_integer: 1]
 
   @type elixir :: %{
@@ -54,14 +56,16 @@ defmodule EthereumJSONRPC.Withdrawal do
       }
   """
   @spec elixir_to_params(elixir) :: params
-  def elixir_to_params(%{
-        "index" => index,
-        "validatorIndex" => validator_index,
-        "address" => address_hash,
-        "amount" => amount,
-        "blockHash" => block_hash,
-        "blockNumber" => block_number
-      }) do
+  def elixir_to_params(
+        %{
+          "index" => index,
+          "validatorIndex" => validator_index,
+          "address" => address_hash,
+          "amount" => amount,
+          "blockHash" => block_hash,
+          "blockNumber" => block_number
+        } = elixir
+      ) do
     %{
       index: index,
       validator_index: validator_index,
@@ -70,6 +74,20 @@ defmodule EthereumJSONRPC.Withdrawal do
       block_number: block_number,
       amount: amount * 1_000_000_000
     }
+    |> chain_type_fields(elixir)
+  end
+
+  if @chain_type == :shinerium do
+    # A reward's type, and for a committee member's reward the member's identity
+    # address (docs/eth-rpc.md of the node, "Withdrawals").
+    defp chain_type_fields(params, elixir) do
+      EthereumJSONRPC.put_if_present(params, elixir, [
+        {"rewardType", :shn_reward_type},
+        {"validator", :shn_validator_hash}
+      ])
+    end
+  else
+    defp chain_type_fields(params, _elixir), do: params
   end
 
   @doc """
@@ -99,5 +117,10 @@ defmodule EthereumJSONRPC.Withdrawal do
 
   defp entry_to_elixir({key, value}) when key in ~w(index validatorIndex amount), do: {key, quantity_to_integer(value)}
   defp entry_to_elixir({key, value}) when key in ~w(address), do: {key, value}
+
+  if @chain_type == :shinerium do
+    defp entry_to_elixir({key, value}) when key in ~w(rewardType validator), do: {key, value}
+  end
+
   defp entry_to_elixir({_, _}), do: {:ignore, :ignore}
 end

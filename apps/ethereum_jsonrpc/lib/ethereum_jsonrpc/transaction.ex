@@ -96,6 +96,17 @@ defmodule EthereumJSONRPC.Transaction do
                            ]
                          )
 
+    :shinerium ->
+      @chain_type_fields quote(
+                           do: [
+                             shn_version: non_neg_integer(),
+                             shn_form: String.t(),
+                             shn_pq_sender_hash: EthereumJSONRPC.address(),
+                             shn_pq_scheme: non_neg_integer(),
+                             shn_metadata_hash: EthereumJSONRPC.hash()
+                           ]
+                         )
+
     _ ->
       @chain_type_fields quote(do: [])
   end
@@ -348,6 +359,7 @@ defmodule EthereumJSONRPC.Transaction do
     normalized_elixir
     |> do_elixir_to_params()
     |> chain_type_fields(normalized_elixir)
+    |> shinerium_fields(normalized_elixir)
     |> chain_identity_fields(normalized_elixir)
   end
 
@@ -684,6 +696,25 @@ defmodule EthereumJSONRPC.Transaction do
     end
   end
 
+  # Shinerium's fields, apart from chain_type_fields/2, whose complexity is at
+  # its bound. The form (docs/eth-rpc.md of the node, "Transactions"): `version`
+  # 1 is Shinerium's extended form, `shnForm` names it, and a post-quantum
+  # witness gives its scheme; the witness's signature is not kept.
+  if @chain_type == :shinerium do
+    defp shinerium_fields(params, elixir) do
+      params
+      |> put_if_present(elixir, [
+        {"version", :shn_version},
+        {"shnForm", :shn_form},
+        {"pqSender", :shn_pq_sender_hash},
+        {"shnMetadataHash", :shn_metadata_hash}
+      ])
+      |> put_if_present(%{"scheme" => get_in(elixir, ["pqWitness", "scheme"])}, [{"scheme", :shn_pq_scheme}])
+    end
+  else
+    defp shinerium_fields(params, _elixir), do: params
+  end
+
   defp chain_identity_fields(params, elixir) do
     case chain_identity() do
       {:optimism, :celo} ->
@@ -866,6 +897,17 @@ defmodule EthereumJSONRPC.Transaction do
 
     defp entry_to_elixir({"calls" = key, calls}) when is_list(calls),
       do: {key, Enum.map(calls, &call_to_elixir/1)}
+  end
+
+  if @chain_type == :shinerium do
+    # A JSON number today; a quantity if the node ever sends one.
+    defp entry_to_elixir({"version" = key, version}) when is_integer(version), do: {key, version}
+    defp entry_to_elixir({"version" = key, version}) when is_binary(version), do: {key, quantity_to_integer(version)}
+
+    defp entry_to_elixir({key, value}) when key in ~w(shnForm pqSender shnMetadataHash), do: {key, value}
+
+    defp entry_to_elixir({"pqWitness" = key, %{"scheme" => scheme}}) when not is_nil(scheme),
+      do: {key, %{"scheme" => if(is_binary(scheme), do: quantity_to_integer(scheme), else: scheme)}}
   end
 
   defp entry_to_elixir(_) do

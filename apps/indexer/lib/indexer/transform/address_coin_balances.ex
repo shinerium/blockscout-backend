@@ -66,7 +66,14 @@ defmodule Indexer.Transform.AddressCoinBalances do
         []
       end
 
-    MapSet.new(filtered_logs ++ filtered_arc_logs)
+    filtered_shinerium_logs =
+      if chain_type() == :shinerium do
+        handle_shinerium_system_logs(logs_params)
+      else
+        []
+      end
+
+    MapSet.new(filtered_logs ++ filtered_arc_logs ++ filtered_shinerium_logs)
   end
 
   defp reducer({:transactions_params, transactions_params}, initial) when is_list(transactions_params) do
@@ -83,6 +90,120 @@ defmodule Indexer.Transform.AddressCoinBalances do
       %{address_hash: address_hash, block_number: block_number}
     end)
   end
+
+  # Shinerium's system contracts pay some accounts without a call, so that no
+  # transaction or internal transaction names them (docs/system-events.md of the
+  # node). Their events name them instead:
+  # - `BondWithdrawn(bytes32 indexed identity, address indexed withdrawal, uint256)`
+  #   at the bond contract: the bond goes to `withdrawal`;
+  # - `AirdropClaimed(address indexed account, address indexed recipient, uint256)`
+  #   at the claim contract: the claim goes to `recipient` (a relayed claim's
+  #   recipient is neither the sender nor a callee);
+  # - `VestingGranted(address indexed grantor, address indexed recipient, uint256)`
+  #   at VESTING: a grant moves coins from the pool to `recipient`;
+  # - `ProposalExecuted(uint64 indexed proposal, uint8, uint64 account, bytes32 target, uint256)`
+  #   at the council: a transfer pays `target` from the treasury account
+  #   `0x…0110 + account`.
+  # The contract itself is in the log's `address_hash`, which the clause above
+  # takes already.
+  @shinerium_bond_contract "0x0000000000000000000000000000000000000102"
+  @shinerium_council_contract "0x0000000000000000000000000000000000000107"
+  @shinerium_vesting_contract "0x0000000000000000000000000000000000000108"
+  @shinerium_airdrop_claim_contract "0x0000000000000000000000000000000000000109"
+  @shinerium_bond_withdrawn "0x25ea4793db0032b8cdaaca90cfb1a94c62132a3aa5194c98958659c26fe2672e"
+  @shinerium_airdrop_claimed "0xb0a0840c7bb9b6ecca130f40e5b8f2158da27eb5c5c9432c8f424a520c8b55d1"
+  @shinerium_vesting_granted "0xca5c5afc14d369678cb16f3b1b1298dd0162d0597efcb41f8b542cc0ce5d7632"
+  @shinerium_proposal_executed "0xedd1a0f1ef31b9496b9bfa3b748ea44fb91da8dc93cc45ea3b0b88989b7b0600"
+  @shinerium_council_account_base 0x0110
+
+  @doc false
+  @spec shinerium_system_event_topics() :: %{atom() => String.t()}
+  def shinerium_system_event_topics do
+    %{
+      bond_withdrawn: @shinerium_bond_withdrawn,
+      airdrop_claimed: @shinerium_airdrop_claimed,
+      vesting_granted: @shinerium_vesting_granted,
+      proposal_executed: @shinerium_proposal_executed
+    }
+  end
+
+  @spec handle_shinerium_system_logs([map()]) :: [%{:address_hash => String.t(), :block_number => non_neg_integer()}]
+  defp handle_shinerium_system_logs(logs_params) do
+    logs_params
+    |> Enum.flat_map(fn
+      %{type: "pending"} ->
+        []
+
+      %{block_number: block_number} = log when is_integer(block_number) ->
+        log
+        |> shinerium_paid_addresses()
+        |> Enum.map(&%{address_hash: &1, block_number: block_number})
+
+      _ ->
+        []
+    end)
+  end
+
+  defp shinerium_paid_addresses(log) do
+    address = log |> Map.get(:address_hash) |> to_string() |> String.downcase()
+    first_topic = log |> Map.get(:first_topic) |> downcase_or_nil()
+
+    case {address, first_topic} do
+      {@shinerium_bond_contract, @shinerium_bond_withdrawn} ->
+        topic_addresses(log, [:third_topic])
+
+      {@shinerium_airdrop_claim_contract, @shinerium_airdrop_claimed} ->
+        topic_addresses(log, [:third_topic])
+
+      {@shinerium_vesting_contract, @shinerium_vesting_granted} ->
+        topic_addresses(log, [:second_topic, :third_topic])
+
+      {@shinerium_council_contract, @shinerium_proposal_executed} ->
+        council_transfer_addresses(Map.get(log, :data))
+
+      _ ->
+        []
+    end
+  end
+
+  defp topic_addresses(log, keys) do
+    keys
+    |> Enum.map(&Map.get(log, &1))
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&truncate_address_hash/1)
+  end
+
+  # The data of ProposalExecuted: kind, account, target and amount, a word each.
+  # A target whose first 12 bytes are zero and the rest not is an address.
+  defp council_transfer_addresses(data) do
+    with true <- is_binary(data) or is_struct(data),
+         "0x" <> hex <- data |> to_string() |> String.downcase(),
+         {:ok, <<_kind::binary-size(32), account::unsigned-big-integer-size(256), target::binary-size(32), _::binary>>} <-
+           Base.decode16(hex, case: :lower) do
+      account_address =
+        if account < 0x10,
+          do: [address_from_integer(@shinerium_council_account_base + account)],
+          else: []
+
+      target_address =
+        case target do
+          <<0::size(96), 0::size(160)>> -> []
+          <<0::size(96), recipient::binary-size(20)>> -> ["0x" <> Base.encode16(recipient, case: :lower)]
+          _ -> []
+        end
+
+      account_address ++ target_address
+    else
+      _ -> []
+    end
+  end
+
+  defp address_from_integer(integer) do
+    "0x" <> Base.encode16(<<integer::unsigned-big-integer-size(160)>>, case: :lower)
+  end
+
+  defp downcase_or_nil(nil), do: nil
+  defp downcase_or_nil(value), do: value |> to_string() |> String.downcase()
 
   # Handles Arc chain type logs.
   #

@@ -207,6 +207,37 @@ defmodule BlockScoutWeb.Schemas.API.V2.Block.ChainTypeCustomizations do
     additionalProperties: false
   }
 
+  @shinerium_schema %Schema{
+    type: :object,
+    nullable: false,
+    description: "Shinerium's header fields (null for a block indexed before the chain type).",
+    properties: %{
+      block_type: %Schema{
+        type: :string,
+        nullable: true,
+        description: "\"normal\", or \"control\" for a carrier, the block that ends an epoch."
+      },
+      control_block_number: %Schema{type: :integer, nullable: true},
+      control_block_hash: General.FullHashNullable,
+      reward: General.IntegerStringNullable,
+      total_supply: General.IntegerStringNullable,
+      block_access_list_hash: General.FullHashNullable,
+      poq_miner_hash: General.AddressHashNullable,
+      anchor_chain_hash: General.FullHashNullable
+    },
+    required: [
+      :block_type,
+      :control_block_number,
+      :control_block_hash,
+      :reward,
+      :total_supply,
+      :block_access_list_hash,
+      :poq_miner_hash,
+      :anchor_chain_hash
+    ],
+    additionalProperties: false
+  }
+
   @zilliqa_schema %Schema{
     type: :object,
     nullable: false,
@@ -308,6 +339,10 @@ defmodule BlockScoutWeb.Schemas.API.V2.Block.ChainTypeCustomizations do
 
       :zilliqa ->
         schema |> Helper.extend_schema(properties: %{zilliqa: @zilliqa_schema})
+
+      # Unlike the others, in lists too.
+      :shinerium ->
+        schema |> Helper.extend_schema(properties: %{shinerium: @shinerium_schema}, required: [:shinerium])
 
       _ ->
         schema

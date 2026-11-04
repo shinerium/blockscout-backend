@@ -60,6 +60,20 @@ defmodule EthereumJSONRPC.Block do
                            ]
                          )
 
+    :shinerium ->
+      @chain_type_fields quote(
+                           do: [
+                             {optional(:shn_block_type), String.t()},
+                             {optional(:shn_control_block_number), non_neg_integer()},
+                             {optional(:shn_control_block_hash), EthereumJSONRPC.hash()},
+                             {optional(:shn_reward), non_neg_integer()},
+                             {optional(:shn_total_supply), non_neg_integer()},
+                             {optional(:shn_block_access_list_hash), EthereumJSONRPC.hash()},
+                             {optional(:shn_poq_miner_hash), EthereumJSONRPC.address()},
+                             {optional(:shn_anchor_chain_hash), EthereumJSONRPC.hash()}
+                           ]
+                         )
+
     _ ->
       @chain_type_fields quote(do: [])
   end
@@ -588,6 +602,21 @@ defmodule EthereumJSONRPC.Block do
         })
       end
 
+    :shinerium ->
+      # Only the fields the node served: a block of another node has none of them.
+      defp chain_type_fields(params, elixir) do
+        EthereumJSONRPC.put_if_present(params, elixir, [
+          {"blockType", :shn_block_type},
+          {"controlBlockNumber", :shn_control_block_number},
+          {"controlBlockHash", :shn_control_block_hash},
+          {"reward", :shn_reward},
+          {"totalSupply", :shn_total_supply},
+          {"blockAccessListHash", :shn_block_access_list_hash},
+          {"poqMiner", :shn_poq_miner_hash},
+          {"anchorChainHash", :shn_anchor_chain_hash}
+        ])
+      end
+
     _ ->
       defp chain_type_fields(params, _), do: params
   end
@@ -981,6 +1010,18 @@ defmodule EthereumJSONRPC.Block do
       defp entry_to_elixir({"aggregateQuorumCertificate" = key, entry}, %{"hash" => block_hash}) do
         # credo:disable-for-next-line Credo.Check.Design.AliasUsage
         {key, EthereumJSONRPC.Zilliqa.AggregateQuorumCertificate.new(entry, block_hash)}
+      end
+
+    :shinerium ->
+      # Shinerium's header fields (docs/eth-rpc.md of the node). `txCount` and
+      # `withdrawalBaseIndex` are JSON numbers the explorer does not keep.
+      defp entry_to_elixir({key, value}, _block)
+           when key in ~w(blockType controlBlockHash blockAccessListHash poqMiner anchorChainHash),
+           do: {key, value}
+
+      defp entry_to_elixir({key, quantity}, _block)
+           when key in ~w(controlBlockNumber reward totalSupply) and not is_nil(quantity) do
+        {key, quantity_to_integer(quantity)}
       end
 
     _ ->

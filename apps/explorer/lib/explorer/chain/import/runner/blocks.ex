@@ -758,6 +758,35 @@ defmodule Explorer.Chain.Import.Runner.Blocks do
     }
   end
 
+  defp on_conflict_chain_type_extension(:shinerium) do
+    {
+      [
+        shn_block_type: dynamic(fragment("EXCLUDED.shn_block_type")),
+        shn_control_block_number: dynamic(fragment("EXCLUDED.shn_control_block_number")),
+        shn_control_block_hash: dynamic(fragment("EXCLUDED.shn_control_block_hash")),
+        shn_reward: dynamic(fragment("EXCLUDED.shn_reward")),
+        shn_total_supply: dynamic(fragment("EXCLUDED.shn_total_supply")),
+        shn_block_access_list_hash: dynamic(fragment("EXCLUDED.shn_block_access_list_hash")),
+        shn_poq_miner_hash: dynamic(fragment("EXCLUDED.shn_poq_miner_hash")),
+        shn_anchor_chain_hash: dynamic(fragment("EXCLUDED.shn_anchor_chain_hash"))
+      ],
+      dynamic(
+        [block],
+        fragment(
+          "(EXCLUDED.shn_block_type, EXCLUDED.shn_control_block_number, EXCLUDED.shn_control_block_hash, EXCLUDED.shn_reward, EXCLUDED.shn_total_supply, EXCLUDED.shn_block_access_list_hash, EXCLUDED.shn_poq_miner_hash, EXCLUDED.shn_anchor_chain_hash) IS DISTINCT FROM (?, ?, ?, ?, ?, ?, ?, ?)",
+          block.shn_block_type,
+          block.shn_control_block_number,
+          block.shn_control_block_hash,
+          block.shn_reward,
+          block.shn_total_supply,
+          block.shn_block_access_list_hash,
+          block.shn_poq_miner_hash,
+          block.shn_anchor_chain_hash
+        )
+      )
+    }
+  end
+
   defp on_conflict_chain_type_extension(_), do: nil
 
   defp consensus_block_numbers(blocks_changes) when is_list(blocks_changes) do

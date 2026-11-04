@@ -2,7 +2,7 @@
 defmodule BlockScoutWeb.API.V2.WithdrawalView do
   use BlockScoutWeb, :view
 
-  alias BlockScoutWeb.API.V2.Helper
+  alias BlockScoutWeb.API.V2.{Helper, ShineriumView}
   alias Explorer.Chain.Withdrawal
 
   def render("withdrawals.json", %{withdrawals: withdrawals, next_page_params: next_page_params}) do
@@ -17,6 +17,7 @@ defmodule BlockScoutWeb.API.V2.WithdrawalView do
       "receiver" => Helper.address_with_info(nil, withdrawal.address, withdrawal.address_hash, false),
       "amount" => withdrawal.amount
     }
+    |> ShineriumView.extend_withdrawal_json_response(withdrawal)
   end
 
   def prepare_withdrawal(%Withdrawal{address: %Ecto.Association.NotLoaded{}} = withdrawal) do
@@ -27,6 +28,7 @@ defmodule BlockScoutWeb.API.V2.WithdrawalView do
       "amount" => withdrawal.amount,
       "timestamp" => withdrawal.block.timestamp
     }
+    |> ShineriumView.extend_withdrawal_json_response(withdrawal)
   end
 
   def prepare_withdrawal(%Withdrawal{} = withdrawal) do
@@ -38,5 +40,6 @@ defmodule BlockScoutWeb.API.V2.WithdrawalView do
       "amount" => withdrawal.amount,
       "timestamp" => withdrawal.block.timestamp
     }
+    |> ShineriumView.extend_withdrawal_json_response(withdrawal)
   end
 end

@@ -127,6 +127,21 @@ defmodule Explorer.Chain.Block.Schema do
                             2
                           )
 
+                        :shinerium ->
+                          elem(
+                            quote do
+                              field(:shn_block_type, :string)
+                              field(:shn_control_block_number, :integer)
+                              field(:shn_control_block_hash, Hash.Full)
+                              field(:shn_reward, Wei)
+                              field(:shn_total_supply, Wei)
+                              field(:shn_block_access_list_hash, Hash.Full)
+                              field(:shn_poq_miner_hash, Hash.Address)
+                              field(:shn_anchor_chain_hash, Hash.Full)
+                            end,
+                            2
+                          )
+
                         _ ->
                           []
                       end)
@@ -263,6 +278,9 @@ defmodule Explorer.Chain.Block do
                                 :zilliqa ->
                                   ~w(zilliqa_view)a
 
+                                :shinerium ->
+                                  ~w(shn_block_type shn_control_block_number shn_control_block_hash shn_reward shn_total_supply shn_block_access_list_hash shn_poq_miner_hash shn_anchor_chain_hash)a
+
                                 _ ->
                                   ~w()a
                               end)
@@ -314,6 +332,16 @@ defmodule Explorer.Chain.Block do
     :ethereum -> """
        * `blob_gas_used` - The total amount of blob gas consumed by the transactions within the block.
        * `excess_blob_gas` - The running total of blob gas consumed in excess of the target, prior to the block.
+      """
+    :shinerium -> """
+       * `shn_block_type` - `"normal"`, or `"control"` for a carrier, the block that ends an epoch.
+       * `shn_control_block_number` - The number of the epoch's control block; for a carrier, the one it carries.
+       * `shn_control_block_hash` - The hash of that control block.
+       * `shn_reward` - The issue a carrier pays out to the committee; zero in other blocks.
+       * `shn_total_supply` - The header's total supply after the block.
+       * `shn_block_access_list_hash` - The hash of the block's access list (EIP-7928).
+       * `shn_poq_miner_hash` - The epoch's Proof-of-Qualification miner, or the zero address.
+       * `shn_anchor_chain_hash` - The header's anchor; in block 0 the SHA-256 of the airdrop list.
       """
     _ -> ""
   end}

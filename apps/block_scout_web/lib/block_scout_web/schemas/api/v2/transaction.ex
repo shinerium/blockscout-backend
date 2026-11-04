@@ -270,6 +270,40 @@ defmodule BlockScoutWeb.Schemas.API.V2.Transaction.ChainTypeCustomizations do
           }
         )
 
+      :shinerium ->
+        schema
+        |> Helper.extend_schema(
+          properties: %{
+            shinerium: %Schema{
+              type: :object,
+              nullable: false,
+              properties: %{
+                version: %Schema{type: :integer, nullable: true},
+                form: %Schema{
+                  type: :string,
+                  nullable: true,
+                  description: "\"extended\", \"hybrid\" or \"envelope\"; null for Ethereum's forms."
+                },
+                pq_scheme: %Schema{
+                  type: :object,
+                  nullable: true,
+                  properties: %{
+                    id: %Schema{type: :integer, nullable: false},
+                    name: %Schema{type: :string, nullable: false}
+                  },
+                  required: [:id, :name],
+                  additionalProperties: false
+                },
+                pq_sender_hash: General.AddressHashNullable,
+                metadata_hash: General.FullHashNullable
+              },
+              required: [:version, :form, :pq_scheme, :pq_sender_hash, :metadata_hash],
+              additionalProperties: false
+            }
+          },
+          required: [:shinerium]
+        )
+
       :zilliqa ->
         schema
         |> Helper.extend_schema(

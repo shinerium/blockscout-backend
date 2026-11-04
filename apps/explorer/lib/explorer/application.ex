@@ -165,6 +165,9 @@ defmodule Explorer.Application do
         configure_mode_dependent_process(Explorer.Market.Fetcher.History, :indexer),
         configure_mode_dependent_process(Explorer.Market, :api),
         configure_mode_dependent_process(Explorer.ChainSpec.GenesisData, :indexer),
+        Explorer.Chain.Shinerium.AddressNames
+        |> configure_mode_dependent_process(:indexer)
+        |> configure_chain_type_dependent_process(:shinerium),
         configure_mode_dependent_process(Explorer.Chain.Cache.Counters.ContractsCount, :indexer),
         configure_mode_dependent_process(Explorer.Chain.Cache.Counters.NewContractsCount, :indexer),
         configure_mode_dependent_process(Explorer.Chain.Cache.Counters.VerifiedContractsCount, :indexer),

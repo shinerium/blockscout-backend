@@ -171,6 +171,13 @@ defmodule BlockScoutWeb.API.V2.BlockView do
         BlockScoutWeb.API.V2.ZilliqaView.extend_block_json_response(result, block, single_block?)
       end
 
+    :shinerium ->
+      # In lists too: the block's type marks the carriers.
+      defp chain_type_fields(result, block, _single_block?) do
+        # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+        BlockScoutWeb.API.V2.ShineriumView.extend_block_json_response(result, block)
+      end
+
     _ ->
       defp chain_type_fields(result, _block, _single_block?) do
         result

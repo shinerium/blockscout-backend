@@ -183,6 +183,18 @@ defmodule Explorer.Chain.Transaction.Schema do
                             ]
                           end
 
+                        :shinerium ->
+                          elem(
+                            quote do
+                              field(:shn_version, :integer)
+                              field(:shn_form, :string)
+                              field(:shn_pq_sender_hash, Hash.Address)
+                              field(:shn_pq_scheme, :integer)
+                              field(:shn_metadata_hash, Hash.Full)
+                            end,
+                            2
+                          )
+
                         _ ->
                           []
                       end)
@@ -376,6 +388,9 @@ defmodule Explorer.Chain.Transaction do
 
                                 :arbitrum ->
                                   ~w(gas_used_for_l1)a
+
+                                :shinerium ->
+                                  ~w(shn_version shn_form shn_pq_sender_hash shn_pq_scheme shn_metadata_hash)a
 
                                 _ ->
                                   ~w()a

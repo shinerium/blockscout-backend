@@ -410,6 +410,11 @@ config :explorer, Explorer.ChainSpec.GenesisData,
   rewards_contract_address: System.get_env("REWARDS_CONTRACT", "0xeca443e8e1ab29971a45a9c57a6a9875701698a5"),
   precompiled_config_path: System.get_env("PRECOMPILED_CONTRACTS_CONFIG_PATH", precompiled_config_default_path)
 
+config :explorer, Explorer.Chain.Shinerium.AddressNames,
+  enabled: ConfigHelper.chain_type() == :shinerium and not is_nil(System.get_env("SHINERIUM_ADDRESS_NAMES_PATH")),
+  path: System.get_env("SHINERIUM_ADDRESS_NAMES_PATH"),
+  delay: ConfigHelper.parse_time_env_var("SHINERIUM_ADDRESS_NAMES_DELAY", "20s")
+
 config :explorer, Explorer.Chain.Cache.Counters.AddressesAggregates,
   global_ttl: ConfigHelper.parse_time_env_var("CACHE_ADDRESS_AGGREGATES_PERIOD", "1h")
 
@@ -673,9 +678,13 @@ config :explorer, Explorer.Chain.Block.Reward,
   validators_contract_address: System.get_env("VALIDATORS_CONTRACT"),
   keys_manager_contract_address: System.get_env("KEYS_MANAGER_CONTRACT")
 
-case System.get_env("SUPPLY_MODULE") do
+# A Shinerium chain reads its supply from the headers unless SUPPLY_MODULE says otherwise.
+case System.get_env("SUPPLY_MODULE") || if(ConfigHelper.chain_type() == :shinerium, do: "shinerium") do
   "rsk" ->
     config :explorer, supply: Explorer.Chain.Supply.RSK
+
+  "shinerium" ->
+    config :explorer, supply: Explorer.Chain.Supply.Shinerium
 
   _ ->
     :ok

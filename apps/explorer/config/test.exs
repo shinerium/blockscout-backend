@@ -80,6 +80,7 @@ for repo <- [
       Explorer.Repo.RSK,
       Explorer.Repo.Scroll,
       Explorer.Repo.Shibarium,
+      Explorer.Repo.Shinerium,
       Explorer.Repo.ShrunkInternalTransactions,
       Explorer.Repo.Stability,
       Explorer.Repo.Suave,

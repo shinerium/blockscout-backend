@@ -1,4 +1,54 @@
 # SPDX-License-Identifier: LicenseRef-Blockscout
+defmodule Explorer.Chain.Withdrawal.Schema do
+  @moduledoc false
+  use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
+
+  alias Explorer.Chain.{Address, Block, Hash, Wei}
+
+  @chain_type_fields (case @chain_type do
+                        :shinerium ->
+                          elem(
+                            quote do
+                              field(:shn_reward_type, :string)
+                              field(:shn_validator_hash, Hash.Address)
+                            end,
+                            2
+                          )
+
+                        _ ->
+                          []
+                      end)
+
+  defmacro generate do
+    quote do
+      @primary_key false
+      typed_schema "withdrawals" do
+        field(:index, :integer, primary_key: true, null: false)
+        field(:validator_index, :integer, null: false)
+        field(:amount, Wei, null: false)
+
+        belongs_to(:address, Address,
+          foreign_key: :address_hash,
+          references: :hash,
+          type: Hash.Address,
+          null: false
+        )
+
+        belongs_to(:block, Block,
+          foreign_key: :block_hash,
+          references: :hash,
+          type: Hash.Full,
+          null: false
+        )
+
+        unquote_splicing(@chain_type_fields)
+
+        timestamps()
+      end
+    end
+  end
+end
+
 defmodule Explorer.Chain.Withdrawal do
   @moduledoc """
   A stored representation of withdrawal introduced in [EIP-4895](https://eips.ethereum.org/EIPS/eip-4895)
@@ -10,30 +60,18 @@ defmodule Explorer.Chain.Withdrawal do
   alias Explorer.Chain.Cache.Counters.{LastFetchedCounter, WithdrawalsSum}
   alias Explorer.PagingOptions
 
+  use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
+
+  require Explorer.Chain.Withdrawal.Schema
+
   @required_attrs ~w(index validator_index amount address_hash block_hash)a
 
-  @primary_key false
-  typed_schema "withdrawals" do
-    field(:index, :integer, primary_key: true, null: false)
-    field(:validator_index, :integer, null: false)
-    field(:amount, Wei, null: false)
+  @chain_type_optional_attrs (case @chain_type do
+                                :shinerium -> ~w(shn_reward_type shn_validator_hash)a
+                                _ -> ~w()a
+                              end)
 
-    belongs_to(:address, Address,
-      foreign_key: :address_hash,
-      references: :hash,
-      type: Hash.Address,
-      null: false
-    )
-
-    belongs_to(:block, Block,
-      foreign_key: :block_hash,
-      references: :hash,
-      type: Hash.Full,
-      null: false
-    )
-
-    timestamps()
-  end
+  Explorer.Chain.Withdrawal.Schema.generate()
 
   @spec changeset(
           Explorer.Chain.Withdrawal.t(),
@@ -41,7 +79,7 @@ defmodule Explorer.Chain.Withdrawal do
         ) :: Ecto.Changeset.t()
   def changeset(%__MODULE__{} = withdrawal, attrs \\ %{}) do
     withdrawal
-    |> cast(attrs, @required_attrs)
+    |> cast(attrs, @required_attrs ++ @chain_type_optional_attrs)
     |> validate_required(@required_attrs)
     |> unique_constraint(:index, name: :withdrawals_pkey)
   end
