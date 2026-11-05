@@ -4,8 +4,8 @@ defmodule Explorer.Chain.ShineriumTest do
   use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
 
   if @chain_type == :shinerium do
-    alias Explorer.Chain.{Block, Hash, Import, Transaction, Wei, Withdrawal}
     alias Explorer.Chain.Address.Name
+    alias Explorer.Chain.{Block, Hash, Import, Transaction, Wei, Withdrawal}
     alias Explorer.Chain.Shinerium.AddressNames
     alias Explorer.Chain.Supply.Shinerium, as: Supply
 
@@ -19,7 +19,7 @@ defmodule Explorer.Chain.ShineriumTest do
     @zero_address "0x0000000000000000000000000000000000000000"
     @zero_hash "0x0000000000000000000000000000000000000000000000000000000000000000"
 
-    defp block_params(overrides \\ %{}) do
+    defp block_params(overrides) do
       Map.merge(
         %{
           consensus: true,

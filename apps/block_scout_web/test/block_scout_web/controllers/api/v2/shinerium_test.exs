@@ -5,7 +5,7 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
   use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
 
   if @chain_type == :shinerium do
-    alias Explorer.Chain.{Hash, Wei}
+    alias Explorer.Chain.{Data, Hash, Wei}
 
     @control_block_hash "0x8108c2bbd5b2660c5a38d58fc8150cb41f3106679ffba149bdf7c09d6a2439d0"
     @access_list_hash "0x811b48da6e1d32fa145494b5980d7cba1eb49a7ae4fa473a67760ce547bb81fc"
@@ -117,9 +117,10 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
         expected = %{
           "version" => 1,
           "form" => "hybrid",
-          "pq_scheme" => %{"id" => 32, "name" => "FN-DSA-512"},
+          "pq_scheme" => %{"id" => 32, "name" => "FN-DSA-512 (pre-standard)"},
           "pq_sender_hash" => nil,
-          "metadata_hash" => @metadata_hash
+          "metadata_hash" => @metadata_hash,
+          "operation" => nil
         }
 
         response = conn |> get("/api/v2/transactions/#{transaction.hash}") |> json_response(200)
@@ -139,12 +140,95 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
                  "form" => nil,
                  "pq_scheme" => nil,
                  "pq_sender_hash" => nil,
-                 "metadata_hash" => nil
+                 "metadata_hash" => nil,
+                 "operation" => nil
                }
 
         unknown = :transaction |> insert(shn_version: 1, shn_form: "hybrid", shn_pq_scheme: 0x7E) |> with_block()
         response = conn |> get("/api/v2/transactions/#{unknown.hash}") |> json_response(200)
         assert response["shinerium"]["pq_scheme"] == %{"id" => 126, "name" => "unknown (0x7E)"}
+
+        retired = :transaction |> insert(shn_version: 1, shn_form: "hybrid", shn_pq_scheme: 0x05) |> with_block()
+        response = conn |> get("/api/v2/transactions/#{retired.hash}") |> json_response(200)
+        assert response["shinerium"]["pq_scheme"] == %{"id" => 5, "name" => "retired (0x05)"}
+      end
+    end
+
+    describe "system contract operations" do
+      # From the explorer's fixture of the node's encodings
+      # (apps/explorer/test/support/fixture/shinerium/system_calls.json).
+      @vote_yes "0xf86d02a0111111111111111111111111111111111111111111111111111111111111111180010780808080a0" <>
+                  String.duplicate("00", 32) <> "01a0" <> String.duplicate("66", 32) <> "80"
+      @register "0xd5012088565656565656565602883333333333333333"
+
+      # A system contract's code is empty, as the node's eth_getCode answers.
+      defp system_call(address, input) do
+        {:ok, no_code} = Data.cast("0x")
+        to_address = insert(:address, hash: address, contract_code: no_code)
+        {:ok, input} = Data.cast(input)
+
+        :transaction
+        |> insert(to_address: to_address, to_address_hash: to_address.hash, input: input)
+        |> with_block()
+      end
+
+      @no_fields %{
+        "identity" => nil,
+        "proposal" => nil,
+        "kind" => nil,
+        "choice" => nil,
+        "scheme" => nil,
+        "policy" => nil,
+        "binary" => nil,
+        "version" => nil
+      }
+
+      test "a council vote is the method `vote`, with its proposal and choice", %{conn: conn} do
+        transaction = system_call("0x0000000000000000000000000000000000000107", @vote_yes)
+
+        expected =
+          Map.merge(@no_fields, %{
+            "contract" => "Council",
+            "code" => 2,
+            "name" => "vote",
+            "identity" => "0x" <> String.duplicate("11", 32),
+            "proposal" => 7,
+            "choice" => "yes"
+          })
+
+        response = conn |> get("/api/v2/transactions/#{transaction.hash}") |> json_response(200)
+        assert response["method"] == "vote"
+        assert response["shinerium"]["operation"] == expected
+
+        response = conn |> get("/api/v2/transactions") |> json_response(200)
+        assert [%{"method" => "vote", "shinerium" => %{"operation" => ^expected}}] = response["items"]
+      end
+
+      test "a key's registration names its scheme and policy", %{conn: conn} do
+        transaction = system_call("0x0000000000000000000000000000000000000106", @register)
+
+        response = conn |> get("/api/v2/transactions/#{transaction.hash}") |> json_response(200)
+        assert response["method"] == "register"
+
+        assert response["shinerium"]["operation"] ==
+                 Map.merge(@no_fields, %{
+                   "contract" => "AccountKeys",
+                   "code" => 1,
+                   "name" => "register",
+                   "scheme" => %{"id" => 32, "name" => "FN-DSA-512 (pre-standard)"},
+                   "policy" => "required"
+                 })
+      end
+
+      test "an unknown operation keeps the method the input gives", %{conn: conn} do
+        # operation 12 of the bond, unknown to the explorer: the first four bytes stay the method
+        transaction = system_call("0x0000000000000000000000000000000000000102", "0xc50c80808080")
+
+        response = conn |> get("/api/v2/transactions/#{transaction.hash}") |> json_response(200)
+        assert response["method"] == "0xc50c8080"
+
+        assert response["shinerium"]["operation"] ==
+                 Map.merge(@no_fields, %{"contract" => "ValidatorBond", "code" => 12, "name" => nil})
       end
     end
 

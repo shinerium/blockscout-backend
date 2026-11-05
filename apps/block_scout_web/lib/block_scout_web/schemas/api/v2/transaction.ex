@@ -295,9 +295,70 @@ defmodule BlockScoutWeb.Schemas.API.V2.Transaction.ChainTypeCustomizations do
                   additionalProperties: false
                 },
                 pq_sender_hash: General.AddressHashNullable,
-                metadata_hash: General.FullHashNullable
+                metadata_hash: General.FullHashNullable,
+                operation: %Schema{
+                  type: :object,
+                  nullable: true,
+                  description:
+                    "The operation asked of a system contract that takes RLP input (ValidatorBond, " <>
+                      "BinaryRegistry, AccountKeys, Council); null for other transactions.",
+                  properties: %{
+                    contract: %Schema{type: :string, nullable: false},
+                    code: %Schema{type: :integer, nullable: false, description: "The operation's number."},
+                    name: %Schema{type: :string, nullable: true, description: "Null for a number not known."},
+                    identity: %Schema{
+                      type: :string,
+                      pattern: General.full_hash_pattern(),
+                      nullable: true,
+                      description:
+                        "The Ed25519 key that acts: the bond's identity, the signing member, the registry's signer."
+                    },
+                    proposal: %Schema{type: :integer, nullable: true},
+                    kind: %Schema{
+                      type: :string,
+                      nullable: true,
+                      description: "A proposal's kind: \"transfer\", \"signal\", \"recall\" or \"collateral\"."
+                    },
+                    choice: %Schema{
+                      type: :string,
+                      nullable: true,
+                      description: "A vote's choice: \"yes\", \"no\" or \"abstain\"."
+                    },
+                    scheme: %Schema{
+                      type: :object,
+                      nullable: true,
+                      properties: %{
+                        id: %Schema{type: :integer, nullable: false},
+                        name: %Schema{type: :string, nullable: false}
+                      },
+                      required: [:id, :name],
+                      additionalProperties: false
+                    },
+                    policy: %Schema{
+                      type: :string,
+                      nullable: true,
+                      description: "An account's policy: \"none\", \"optional\", \"required\" or \"pq-only\"."
+                    },
+                    binary: General.FullHashNullable,
+                    version: %Schema{type: :integer, nullable: true}
+                  },
+                  required: [
+                    :contract,
+                    :code,
+                    :name,
+                    :identity,
+                    :proposal,
+                    :kind,
+                    :choice,
+                    :scheme,
+                    :policy,
+                    :binary,
+                    :version
+                  ],
+                  additionalProperties: false
+                }
               },
-              required: [:version, :form, :pq_scheme, :pq_sender_hash, :metadata_hash],
+              required: [:version, :form, :pq_scheme, :pq_sender_hash, :metadata_hash, :operation],
               additionalProperties: false
             }
           },

@@ -10,14 +10,18 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
 
   if @chain_type == :shinerium do
     alias Explorer.Chain.{Block, Hash, Transaction, Withdrawal}
+    alias Explorer.Chain.Shinerium.SystemCall
 
-    # The node's post-quantum signature schemes (crypto/pqsig of the node).
+    # The node's post-quantum signature schemes, as crypto/pqsig of the node
+    # names them, without its notes on which are reserved and which library
+    # implements them. 0x20 is the test network's FN-DSA-512, from before FIPS 206.
     @pq_schemes %{
+      0x00 => "none",
       0x10 => "ML-DSA-44",
       0x11 => "ML-DSA-65",
-      0x20 => "FN-DSA-512",
-      0x21 => "FN-DSA-512 (padded)",
-      0x22 => "FN-DSA-1024",
+      0x20 => "FN-DSA-512 (pre-standard)",
+      0x21 => "FN-DSA-512 (pre-standard, padded)",
+      0x22 => "FN-DSA-1024 (pre-standard)",
       0x28 => "FN-DSA-512 (FIPS 206)",
       0x30 => "SLH-DSA"
     }
@@ -50,19 +54,52 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
     Adds a `shinerium` object to a transaction's JSON: its version (1 for
     Shinerium's extended form), its form (`"extended"`, `"hybrid"` or
     `"envelope"`; null for Ethereum's forms), the post-quantum witness's scheme
-    with its name, the post-quantum sender where the node names one, and the
-    metadata's hash.
+    with its name, the post-quantum sender where the node names one, the
+    metadata's hash, and the operation it asks of a system contract that takes
+    RLP input (`Explorer.Chain.Shinerium.SystemCall`).
+
+    A named operation is also the transaction's `method`, in place of the first
+    four bytes of its RLP.
     """
     @spec extend_transaction_json_response(map(), Transaction.t()) :: map()
     def extend_transaction_json_response(out_json, %Transaction{} = transaction) do
-      Map.put(out_json, :shinerium, %{
+      operation = SystemCall.decode(transaction.to_address_hash, transaction.input)
+
+      out_json
+      |> put_method(operation)
+      |> Map.put(:shinerium, %{
         version: transaction.shn_version,
         form: transaction.shn_form,
         pq_scheme: pq_scheme(transaction.shn_pq_scheme),
         pq_sender_hash: transaction.shn_pq_sender_hash,
-        metadata_hash: transaction.shn_metadata_hash
+        metadata_hash: transaction.shn_metadata_hash,
+        operation: operation_json(operation)
       })
     end
+
+    defp put_method(out_json, %{name: name}) when is_binary(name), do: Map.put(out_json, "method", name)
+    defp put_method(out_json, _operation), do: out_json
+
+    defp operation_json(nil), do: nil
+
+    defp operation_json(operation) do
+      %{
+        contract: operation.contract,
+        code: operation.code,
+        name: operation.name,
+        identity: hex(operation.identity),
+        proposal: operation.proposal,
+        kind: operation.kind,
+        choice: operation.choice,
+        scheme: pq_scheme(operation.scheme),
+        policy: operation.policy,
+        binary: hex(operation.binary),
+        version: operation.version
+      }
+    end
+
+    defp hex(nil), do: nil
+    defp hex(bytes), do: "0x" <> Base.encode16(bytes, case: :lower)
 
     @doc """
     Adds a `shinerium` object to a withdrawal's JSON: the reward's type
@@ -79,11 +116,15 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
     end
 
     @doc """
-    The name of a post-quantum signature scheme, as the node names its schemes.
+    The name of a post-quantum signature scheme, after the node's names. The
+    numbers 0x01 to 0x0f belonged to a scheme library the node retired.
     """
     @spec pq_scheme_name(non_neg_integer() | nil) :: String.t() | nil
     def pq_scheme_name(nil), do: nil
-    def pq_scheme_name(id), do: Map.get(@pq_schemes, id, "unknown (0x#{Integer.to_string(id, 16)})")
+    def pq_scheme_name(id) when id in 0x01..0x0F, do: "retired (0x#{hex_byte(id)})"
+    def pq_scheme_name(id), do: Map.get(@pq_schemes, id, "unknown (0x#{hex_byte(id)})")
+
+    defp hex_byte(id), do: id |> Integer.to_string(16) |> String.pad_leading(2, "0")
 
     defp pq_scheme(nil), do: nil
     defp pq_scheme(id), do: %{id: id, name: pq_scheme_name(id)}
