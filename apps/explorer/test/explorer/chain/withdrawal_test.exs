@@ -5,6 +5,25 @@ defmodule Explorer.Chain.WithdrawalTest do
   alias Ecto.Changeset
   alias Explorer.Chain.Withdrawal
 
+  describe "upsert_count_withdrawals/1" do
+    test "counts the withdrawals up to the highest index imported" do
+      assert Decimal.equal?(Withdrawal.count_withdrawals_from_cache(), 1)
+
+      Withdrawal.upsert_count_withdrawals(1312)
+      assert Decimal.equal?(Withdrawal.count_withdrawals_from_cache(), 1313)
+
+      Withdrawal.upsert_count_withdrawals(1367)
+      assert Decimal.equal?(Withdrawal.count_withdrawals_from_cache(), 1368)
+    end
+
+    test "keeps a higher count when an older block is imported" do
+      Withdrawal.upsert_count_withdrawals(1367)
+      Withdrawal.upsert_count_withdrawals(8)
+
+      assert Decimal.equal?(Withdrawal.count_withdrawals_from_cache(), 1368)
+    end
+  end
+
   describe "changeset/2" do
     test "with valid attributes" do
       assert %Changeset{valid?: true} =

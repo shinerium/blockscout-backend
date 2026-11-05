@@ -156,12 +156,16 @@ defmodule Explorer.Chain.Withdrawal do
 
   @doc """
   Upserts the count of all withdrawals into the `last_fetched_counters` table.
+
+  The counter holds the highest withdrawal index imported; it only grows. It is
+  read as a `Decimal`, so it is compared as one: an integer is never greater
+  than a `Decimal` struct in Erlang's term order, which kept the counter unset.
   """
-  @spec upsert_count_withdrawals(non_neg_integer()) :: {:ok, any()} | {:error, any()}
+  @spec upsert_count_withdrawals(non_neg_integer()) :: {:ok, any()} | {:error, any()} | nil
   def upsert_count_withdrawals(index) do
     current_value = LastFetchedCounter.get("withdrawals_count")
 
-    if index > current_value do
+    if Decimal.gt?(index, current_value) do
       LastFetchedCounter.upsert(%{
         counter_type: "withdrawals_count",
         value: index
