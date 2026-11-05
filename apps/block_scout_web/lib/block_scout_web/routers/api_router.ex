@@ -364,6 +364,12 @@ defmodule BlockScoutWeb.Routers.ApiRouter do
       end
     end
 
+    scope "/shinerium" do
+      chain_scope :shinerium do
+        get("/addresses/:address_hash_param", V2.ShineriumController, :address)
+      end
+    end
+
     scope "/withdrawals" do
       get("/", V2.WithdrawalController, :withdrawals_list)
       get("/counters", V2.WithdrawalController, :withdrawals_counters)

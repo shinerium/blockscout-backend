@@ -5,6 +5,8 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
   use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
 
   if @chain_type == :shinerium do
+    import Mox
+
     alias Explorer.Chain.{Data, Hash, Wei}
 
     @control_block_hash "0x8108c2bbd5b2660c5a38d58fc8150cb41f3106679ffba149bdf7c09d6a2439d0"
@@ -229,6 +231,147 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
 
         assert response["shinerium"]["operation"] ==
                  Map.merge(@no_fields, %{"contract" => "ValidatorBond", "code" => 12, "name" => nil})
+      end
+    end
+
+    describe "an account's key and vesting" do
+      setup :verify_on_exit!
+
+      @pool "0xa57a71d381a20000000000000000000000000002"
+      @key_hash "0x" <> String.duplicate("ab", 32)
+
+      defp node_answers(address, account_key, vesting) do
+        EthereumJSONRPC.Mox
+        |> expect(:json_rpc, fn %{method: "shn_getAccountKey", params: [^address, "latest"]}, _ -> account_key end)
+        |> expect(:json_rpc, fn %{method: "shn_getVesting", params: [^address, "latest"]}, _ -> vesting end)
+      end
+
+      test "a grant pool with a required key, as the node gives it", %{conn: conn} do
+        node_answers(
+          @pool,
+          {:ok,
+           %{
+             "address" => @pool,
+             "policy" => "required",
+             "scheme" => "0x20",
+             "schemeName" => "FN-DSA-512 (pre-standard, falcon-go CT)",
+             "version" => "0x1",
+             "changedAt" => "0x0",
+             "keyHash" => @key_hash,
+             "verifiable" => true
+           }},
+          {:ok,
+           %{
+             "address" => @pool,
+             "blockNumber" => "0x24d",
+             "time" => "0x6a0a8a40",
+             "balance" => "0x6bdd0e563bd56a8000000",
+             "lockedUntil" => "0x761977f8",
+             "whollyLocked" => false,
+             "record" => %{
+               "amount" => "0x69bf2c4959db255c00000",
+               "start" => "0x6eaf07f8",
+               "cliff" => "0x6eaf07f8",
+               "end" => "0x761977f8",
+               "step" => "0x278d00",
+               "pool" => true
+             },
+             "vested" => "0x0",
+             "nextVest" => "0x6ed694f8",
+             "locked" => "0x69bf2c4959db255c00000",
+             "spendable" => "0x21e19e0c9bab2400000"
+           }}
+        )
+
+        response = conn |> get("/api/v2/shinerium/addresses/#{@pool}") |> json_response(200)
+
+        assert response == %{
+                 "account_key" => %{
+                   "policy" => "required",
+                   "scheme" => %{"id" => 32, "name" => "FN-DSA-512 (pre-standard)"},
+                   "version" => 1,
+                   "changed_at_block" => 0,
+                   "key_hash" => @key_hash,
+                   "verifiable" => true
+                 },
+                 "vesting" => %{
+                   "locked_until" => "2032-10-14T15:30:00Z",
+                   "wholly_locked" => false,
+                   "locked" => "7990000000000000000000000",
+                   "spendable" => "10000000000000000000000",
+                   "vested" => "0",
+                   "next_vest" => "2028-12-04T15:30:00Z",
+                   "record" => %{
+                     "amount" => "7990000000000000000000000",
+                     "start" => "2028-11-04T15:30:00Z",
+                     "cliff" => "2028-11-04T15:30:00Z",
+                     "end" => "2032-10-14T15:30:00Z",
+                     "step" => 2_592_000,
+                     "pool" => true
+                   }
+                 }
+               }
+      end
+
+      test "an account with neither key nor vesting", %{conn: conn} do
+        address = "0x2b2a63c920f8b7a3f1c1b2e5d6a0e8c3f4a5b6c7"
+
+        node_answers(
+          address,
+          {:ok,
+           %{
+             "address" => address,
+             "policy" => "none",
+             "scheme" => "0x0",
+             "version" => "0x0",
+             "changedAt" => "0x0",
+             "keyHash" => "0x" <> String.duplicate("0", 64),
+             "verifiable" => false
+           }},
+          {:ok,
+           %{
+             "address" => address,
+             "lockedUntil" => "0x0",
+             "whollyLocked" => false,
+             "record" => nil,
+             "locked" => "0x0",
+             "spendable" => "0x0"
+           }}
+        )
+
+        response = conn |> get("/api/v2/shinerium/addresses/#{address}") |> json_response(200)
+
+        assert response == %{
+                 "account_key" => %{
+                   "policy" => "none",
+                   "scheme" => nil,
+                   "version" => 0,
+                   "changed_at_block" => 0,
+                   "key_hash" => nil,
+                   "verifiable" => false
+                 },
+                 "vesting" => %{
+                   "locked_until" => nil,
+                   "wholly_locked" => false,
+                   "locked" => "0",
+                   "spendable" => "0",
+                   "vested" => nil,
+                   "next_vest" => nil,
+                   "record" => nil
+                 }
+               }
+      end
+
+      test "what the node does not give is null", %{conn: conn} do
+        unknown_method = {:error, %{code: -32_601, message: "the method shn_getVesting does not exist"}}
+        node_answers(@pool, {:error, :timeout}, unknown_method)
+
+        response = conn |> get("/api/v2/shinerium/addresses/#{@pool}") |> json_response(200)
+        assert response == %{"account_key" => nil, "vesting" => nil}
+      end
+
+      test "an address that is no address", %{conn: conn} do
+        conn |> get("/api/v2/shinerium/addresses/0x123") |> json_response(422)
       end
     end
 

@@ -3,28 +3,76 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
   @moduledoc """
   Shinerium's own fields in the API v2 JSON: a `shinerium` object in blocks,
   transactions and withdrawals, from the fields the node serves (docs/eth-rpc.md
-  of the node).
+  of the node), and an account's post-quantum key and vesting
+  (`/api/v2/shinerium/addresses/:address_hash_param`).
   """
 
   use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
 
+  alias Explorer.Chain.Shinerium.Account
+
+  # The node's post-quantum signature schemes, as crypto/pqsig of the node
+  # names them, without its notes on which are reserved and which library
+  # implements them. 0x20 is the test network's FN-DSA-512, from before FIPS 206.
+  @pq_schemes %{
+    0x00 => "none",
+    0x10 => "ML-DSA-44",
+    0x11 => "ML-DSA-65",
+    0x20 => "FN-DSA-512 (pre-standard)",
+    0x21 => "FN-DSA-512 (pre-standard, padded)",
+    0x22 => "FN-DSA-1024 (pre-standard)",
+    0x28 => "FN-DSA-512 (FIPS 206)",
+    0x30 => "SLH-DSA"
+  }
+
+  @doc """
+  The name of a post-quantum signature scheme, after the node's names. The
+  numbers 0x01 to 0x0f belonged to a scheme library the node retired.
+  """
+  @spec pq_scheme_name(non_neg_integer() | nil) :: String.t() | nil
+  def pq_scheme_name(nil), do: nil
+  def pq_scheme_name(id) when id in 0x01..0x0F, do: "retired (0x#{hex_byte(id)})"
+  def pq_scheme_name(id), do: Map.get(@pq_schemes, id, "unknown (0x#{hex_byte(id)})")
+
+  defp hex_byte(id), do: id |> Integer.to_string(16) |> String.pad_leading(2, "0")
+
+  defp pq_scheme(nil), do: nil
+  defp pq_scheme(id), do: %{id: id, name: pq_scheme_name(id)}
+
+  @doc """
+  The JSON of `/api/v2/shinerium/addresses/:address_hash_param`: an account's
+  post-quantum key and vesting (`Explorer.Chain.Shinerium.Account`), amounts in
+  wei as strings and times in ISO 8601.
+  """
+  @spec account_json(Account.t()) :: map()
+  def account_json(%{account_key: account_key, vesting: vesting}) do
+    %{account_key: account_key_json(account_key), vesting: vesting_json(vesting)}
+  end
+
+  defp account_key_json(nil), do: nil
+  defp account_key_json(account_key), do: %{account_key | scheme: pq_scheme(account_key.scheme)}
+
+  defp vesting_json(nil), do: nil
+
+  defp vesting_json(vesting) do
+    %{
+      vesting
+      | locked: integer_string(vesting.locked),
+        spendable: integer_string(vesting.spendable),
+        vested: integer_string(vesting.vested),
+        record: record_json(vesting.record)
+    }
+  end
+
+  defp record_json(nil), do: nil
+  defp record_json(record), do: %{record | amount: integer_string(record.amount)}
+
+  defp integer_string(nil), do: nil
+  defp integer_string(value), do: Integer.to_string(value)
+
   if @chain_type == :shinerium do
     alias Explorer.Chain.{Block, Hash, Transaction, Withdrawal}
     alias Explorer.Chain.Shinerium.SystemCall
-
-    # The node's post-quantum signature schemes, as crypto/pqsig of the node
-    # names them, without its notes on which are reserved and which library
-    # implements them. 0x20 is the test network's FN-DSA-512, from before FIPS 206.
-    @pq_schemes %{
-      0x00 => "none",
-      0x10 => "ML-DSA-44",
-      0x11 => "ML-DSA-65",
-      0x20 => "FN-DSA-512 (pre-standard)",
-      0x21 => "FN-DSA-512 (pre-standard, padded)",
-      0x22 => "FN-DSA-1024 (pre-standard)",
-      0x28 => "FN-DSA-512 (FIPS 206)",
-      0x30 => "SLH-DSA"
-    }
 
     @doc """
     Adds a `shinerium` object to a block's JSON: the block's type (`"control"` for
@@ -114,20 +162,6 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
         validator_hash: withdrawal.shn_validator_hash
       })
     end
-
-    @doc """
-    The name of a post-quantum signature scheme, after the node's names. The
-    numbers 0x01 to 0x0f belonged to a scheme library the node retired.
-    """
-    @spec pq_scheme_name(non_neg_integer() | nil) :: String.t() | nil
-    def pq_scheme_name(nil), do: nil
-    def pq_scheme_name(id) when id in 0x01..0x0F, do: "retired (0x#{hex_byte(id)})"
-    def pq_scheme_name(id), do: Map.get(@pq_schemes, id, "unknown (0x#{hex_byte(id)})")
-
-    defp hex_byte(id), do: id |> Integer.to_string(16) |> String.pad_leading(2, "0")
-
-    defp pq_scheme(nil), do: nil
-    defp pq_scheme(id), do: %{id: id, name: pq_scheme_name(id)}
 
     defp nonzero(nil), do: nil
 
