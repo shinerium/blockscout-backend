@@ -108,6 +108,32 @@ defmodule EthereumJSONRPC.ShineriumTest do
         assert params.number == 21
       end
 
+      # The BLS certificate of the node's smartfhs.QC.Encode() (0.2.0-39ebea86):
+      # epoch 287, view 4106, signers 0x6f, a signature of 96 bytes.
+      @justify "0xf88b82011f82100aa03d0514715ed027b78d0cb6cb4a56a3e20bc34950130b2be93b36310f3a13f38a6f01b860" <>
+                 String.duplicate("ab", 96)
+
+      test "take the consensus of a node with R4: epoch, view and the parent's certificate" do
+        block = Map.merge(@carrier, %{"epoch" => "0x4", "view" => "0x1d", "justify" => @justify})
+        %Blocks{blocks_params: [params]} = Blocks.from_responses([%{id: 0, result: block}], %{0 => %{number: 21}})
+
+        assert params.shn_epoch == 4
+        assert params.shn_view == 29
+        assert params.shn_justify_epoch == 287
+        assert params.shn_justify_view == 4106
+        assert params.shn_justify_scheme == 1
+        assert params.shn_justify_signers == [0, 1, 2, 3, 5, 6]
+      end
+
+      test "leave out a certificate the explorer cannot read" do
+        block = Map.merge(@carrier, %{"epoch" => "0x4", "view" => "0x1d", "justify" => "0xc0"})
+        %Blocks{blocks_params: [params]} = Blocks.from_responses([%{id: 0, result: block}], %{0 => %{number: 21}})
+
+        assert {params.shn_epoch, params.shn_view} == {4, 29}
+        refute Map.has_key?(params, :shn_justify_signers)
+        refute Map.has_key?(params, :shn_justify_view)
+      end
+
       test "of another node have none of them" do
         other = Map.drop(@carrier, ~w(blockType controlBlockNumber controlBlockHash reward totalSupply
                                       blockAccessListHash poqMiner anchorChainHash))

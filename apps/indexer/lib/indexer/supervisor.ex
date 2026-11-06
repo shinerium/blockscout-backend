@@ -31,6 +31,7 @@ defmodule Indexer.Supervisor do
   alias Indexer.Fetcher.MultichainSearchDb.CountersFetcher, as: MultichainSearchDbCountersFetcher
   alias Indexer.Fetcher.MultichainSearchDb.MainExportQueue, as: MultichainSearchDbMainExportQueue
   alias Indexer.Fetcher.MultichainSearchDb.TokenInfoExportQueue, as: MultichainSearchDbTokenInfoExportQueue
+  alias Indexer.Fetcher.Shinerium.Epochs, as: ShineriumEpochs
   alias Indexer.Fetcher.Stability.Validator, as: ValidatorStability
   alias Indexer.Fetcher.Stats.HotSmartContracts
   alias Indexer.Fetcher.TokenBalance.Current, as: TokenBalanceCurrent
@@ -375,6 +376,12 @@ defmodule Indexer.Supervisor do
 
       :rsk ->
         [TokenTransferBlockConsensusSanitizer | fetchers]
+
+      :shinerium ->
+        [
+          {ShineriumEpochs, [json_rpc_named_arguments: Application.get_env(:indexer, :json_rpc_named_arguments)]}
+          | fetchers
+        ]
 
       _ ->
         fetchers

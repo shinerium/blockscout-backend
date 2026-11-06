@@ -134,6 +134,24 @@ defmodule Explorer.Chain.ShineriumTest do
         assert block.shn_total_supply == %Wei{value: Decimal.new(200_000_986_577_454_855_327_738_358)}
         assert block.shn_reward == %Wei{value: Decimal.new(1)}
       end
+
+      test "takes the consensus when a node with R4 serves the block again" do
+        assert {:ok, _} = import_carrier()
+        {:ok, block_hash} = Hash.Full.cast(@block_hash)
+        assert %Block{shn_epoch: nil, shn_justify_signers: nil} = Repo.get!(Block, block_hash)
+
+        consensus = %{
+          shn_epoch: 4,
+          shn_view: 29,
+          shn_justify_epoch: 4,
+          shn_justify_view: 28,
+          shn_justify_scheme: 3,
+          shn_justify_signers: [0, 1, 2, 3, 5, 6]
+        }
+
+        assert {:ok, _} = import_carrier(consensus)
+        assert Repo.get!(Block, block_hash) |> Map.take(Map.keys(consensus)) == consensus
+      end
     end
 
     describe "supply" do
