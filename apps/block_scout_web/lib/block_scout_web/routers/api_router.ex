@@ -367,6 +367,12 @@ defmodule BlockScoutWeb.Routers.ApiRouter do
     scope "/shinerium" do
       chain_scope :shinerium do
         get("/addresses/:address_hash_param", V2.ShineriumController, :address)
+        get("/epochs", V2.ShineriumController, :epochs)
+        get("/epochs/:number", V2.ShineriumController, :epoch)
+        get("/validators", V2.ShineriumController, :validators)
+        get("/validators/:id", V2.ShineriumController, :validator)
+        get("/validators/:id/epochs", V2.ShineriumController, :validator_epochs)
+        get("/blocks/:block_hash_or_number_param/consensus", V2.ShineriumController, :block_consensus)
       end
     end
 

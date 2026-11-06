@@ -13,6 +13,7 @@ defmodule Explorer.Chain.Shinerium.SystemCall do
   does not know keeps a null name.
   """
 
+  alias EthereumJSONRPC.Shinerium.RLP
   alias Explorer.Chain.{Data, Hash}
 
   @type t :: %{
@@ -96,8 +97,8 @@ defmodule Explorer.Chain.Shinerium.SystemCall do
   def decode(%Hash{bytes: address}, %Data{bytes: input}) when is_map_key(@contracts, address) do
     contract = Map.fetch!(@contracts, address)
 
-    with {:ok, [{:string, op} | _] = items} <- rlp_list(input),
-         {:ok, code} <- uint(op) do
+    with {:ok, [{:string, op} | _] = items} <- RLP.list(input),
+         {:ok, code} <- RLP.uint(op) do
       operation(contract, code, items)
     else
       _ -> nil
@@ -160,55 +161,10 @@ defmodule Explorer.Chain.Shinerium.SystemCall do
 
   defp uint_at(items, index) do
     with {:string, bytes} <- Enum.at(items, index),
-         {:ok, value} <- uint(bytes) do
+         {:ok, value} <- RLP.uint(bytes) do
       value
     else
       _ -> nil
-    end
-  end
-
-  # A uint64 as RLP holds it: big-endian, no leading zero, empty for zero.
-  defp uint(<<>>), do: {:ok, 0}
-  defp uint(<<0, _::binary>>), do: :error
-  defp uint(bytes) when byte_size(bytes) <= 8, do: {:ok, :binary.decode_unsigned(bytes)}
-  defp uint(_), do: :error
-
-  # The items of the RLP list that is the whole input: {:string, bytes}, or
-  # {:list, payload} for a list within it, which is not read further.
-  defp rlp_list(input) do
-    case rlp_item(input) do
-      {:ok, {:list, payload}, <<>>} -> rlp_items(payload, [])
-      _ -> :error
-    end
-  end
-
-  defp rlp_items(<<>>, items), do: {:ok, Enum.reverse(items)}
-
-  defp rlp_items(payload, items) do
-    case rlp_item(payload) do
-      {:ok, item, rest} -> rlp_items(rest, [item | items])
-      :error -> :error
-    end
-  end
-
-  defp rlp_item(<<byte, rest::binary>>) when byte < 0x80, do: {:ok, {:string, <<byte>>}, rest}
-  defp rlp_item(<<prefix, rest::binary>>) when prefix <= 0xB7, do: take(:string, prefix - 0x80, rest)
-  defp rlp_item(<<prefix, rest::binary>>) when prefix <= 0xBF, do: take_long(:string, prefix - 0xB7, rest)
-  defp rlp_item(<<prefix, rest::binary>>) when prefix <= 0xF7, do: take(:list, prefix - 0xC0, rest)
-  defp rlp_item(<<prefix, rest::binary>>), do: take_long(:list, prefix - 0xF7, rest)
-  defp rlp_item(_), do: :error
-
-  defp take(kind, size, rest) do
-    case rest do
-      <<payload::binary-size(^size), rest::binary>> -> {:ok, {kind, payload}, rest}
-      _ -> :error
-    end
-  end
-
-  defp take_long(kind, size_bytes, rest) do
-    case rest do
-      <<size::unsigned-big-integer-size(^size_bytes)-unit(8), rest::binary>> -> take(kind, size, rest)
-      _ -> :error
     end
   end
 end

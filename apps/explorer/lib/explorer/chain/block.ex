@@ -138,6 +138,12 @@ defmodule Explorer.Chain.Block.Schema do
                               field(:shn_block_access_list_hash, Hash.Full)
                               field(:shn_poq_miner_hash, Hash.Address)
                               field(:shn_anchor_chain_hash, Hash.Full)
+                              field(:shn_epoch, :integer)
+                              field(:shn_view, :integer)
+                              field(:shn_justify_epoch, :integer)
+                              field(:shn_justify_view, :integer)
+                              field(:shn_justify_scheme, :integer)
+                              field(:shn_justify_signers, {:array, :integer})
                             end,
                             2
                           )
@@ -279,7 +285,7 @@ defmodule Explorer.Chain.Block do
                                   ~w(zilliqa_view)a
 
                                 :shinerium ->
-                                  ~w(shn_block_type shn_control_block_number shn_control_block_hash shn_reward shn_total_supply shn_block_access_list_hash shn_poq_miner_hash shn_anchor_chain_hash)a
+                                  ~w(shn_block_type shn_control_block_number shn_control_block_hash shn_reward shn_total_supply shn_block_access_list_hash shn_poq_miner_hash shn_anchor_chain_hash shn_epoch shn_view shn_justify_epoch shn_justify_view shn_justify_scheme shn_justify_signers)a
 
                                 _ ->
                                   ~w()a
@@ -342,6 +348,12 @@ defmodule Explorer.Chain.Block do
        * `shn_block_access_list_hash` - The hash of the block's access list (EIP-7928).
        * `shn_poq_miner_hash` - The epoch's Proof-of-Qualification miner, or the zero address.
        * `shn_anchor_chain_hash` - The header's anchor; in block 0 the SHA-256 of the airdrop list.
+       * `shn_epoch` - The header's epoch: for a carrier, the epoch it ends.
+       * `shn_view` - The header's view, the consensus round that made the block.
+       * `shn_justify_epoch` - The epoch of the parent's quorum certificate, which the block carries.
+       * `shn_justify_view` - That certificate's view.
+       * `shn_justify_scheme` - That certificate's signature scheme: 1 BLS, 3 hybrid.
+       * `shn_justify_signers` - That certificate's signers, as indices in its epoch's committee.
       """
     _ -> ""
   end}

@@ -38,7 +38,10 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
       "total_supply" => "200000986577454855327738357",
       "block_access_list_hash" => @access_list_hash,
       "poq_miner_hash" => nil,
-      "anchor_chain_hash" => nil
+      "anchor_chain_hash" => nil,
+      "epoch" => nil,
+      "view" => nil,
+      "justify" => nil
     }
 
     describe "blocks" do
@@ -381,6 +384,280 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
 
         response = conn |> get("/api/v2/addresses") |> json_response(200)
         assert response["total_supply"] == "200000986.577454855327738357"
+      end
+    end
+
+    describe "epochs, committees and validators (P4)" do
+      alias Explorer.Chain.Shinerium.Consensus
+
+      @members [
+        {"0x7a8c7e56b6d2741a685511134b3e7e44c7a044784566e2c84e91816a730ea791",
+         "0x62adbfea805c0baf48b88a9e8c011dae7e450765", "SCM01"},
+        {"0xccc31774059cb9bb8b667e3693d31052f555e6328b18f73c79ac862b78530a18",
+         "0x9434c7b49e217ba9a65c427b8de9cff2c77fde80", nil},
+        {"0x9b4aaa715ee4937d00c421147e3d88b5689729af989282d2dce8716789315e5a",
+         "0xfc74dc5766df64f5a9ab70cb8fd6bfc51baf9368", "SCM03"}
+      ]
+
+      defp member_rows(epoch, signed, removed) do
+        @members
+        |> Enum.with_index()
+        |> Enum.map(fn {{identity, address, _name}, index} ->
+          %{
+            epoch_number: epoch,
+            index: index,
+            identity: full_hash(identity),
+            ed_address_hash: address_hash(address),
+            coinbase_hash: address_hash("0x0b5f7268a8081e9b871c902b3bd968443b3fa173"),
+            pq_key_hash: full_hash("0x" <> String.duplicate("f9", 32)),
+            location: %{"country" => "CA", "region" => "Quebec", "asn" => 16_276, "source" => "declared"},
+            signed: signed && Enum.at(signed, index),
+            removal_reason: Map.get(removed, index)
+          }
+        end)
+      end
+
+      defp epoch_row(number, ended?) do
+        %{
+          number: number,
+          control_block_hash: full_hash("0x" <> String.duplicate("0#{number}", 32)),
+          committee_hash: full_hash("0x" <> String.duplicate("c#{number}", 32)),
+          started_at: ~U[2026-11-06 10:00:00.000000Z] |> DateTime.add(number * 600),
+          carrier_block_number: number * 10,
+          members_count: 3,
+          ended_at: if(ended?, do: ~U[2026-11-06 10:00:00.000000Z] |> DateTime.add(number * 600 + 600)),
+          end_block_number: if(ended?, do: number * 10 + 10),
+          qcs: if(ended?, do: 4),
+          absent_kept: if(ended?, do: 0),
+          next_first: if(ended?, do: 1),
+          joined:
+            if(ended?,
+              do: [
+                %{
+                  "edPublic" => "AB" <> String.duplicate("cd", 31),
+                  "edAddress" => "0x936B096aeDa0DB3195Df7d3c4D6585098E5643E1",
+                  "coinbase" => "0x936B096aeDa0DB3195Df7d3c4D6585098E5643E1",
+                  "location" => %{"country" => "GB"}
+                }
+              ]
+            )
+        }
+      end
+
+      # Epoch 6 ended: member 1 signed 2 of 4 and left as offline; epoch 7 runs.
+      defp epochs do
+        {:ok, _} =
+          Consensus.import_epochs(
+            [epoch_row(6, true), epoch_row(7, false)],
+            member_rows(6, [4, 2, 3], %{1 => 2}) ++ member_rows(7, nil, %{})
+          )
+
+        Consensus.upsert_validators(
+          Enum.map(@members, fn {identity, address, _} ->
+            %{identity: full_hash(identity), ed_address_hash: address_hash(address)}
+          end)
+        )
+
+        Consensus.upsert_validators(
+          for {identity, address, name} <- @members, name do
+            %{
+              identity: full_hash(identity),
+              ed_address_hash: address_hash(address),
+              name: name,
+              status: "active",
+              genesis: true,
+              amount: %Wei{value: Decimal.new(100_000_000_000_000_000_000_000)},
+              bond_owner_hash: address_hash("0xb67a9585b0d8b6d3b1b8e7e5a2a9d6f1c3e4b5a6"),
+              refund_address_hash: address_hash("0xb67a9585b0d8b6d3b1b8e7e5a2a9d6f1c3e4b5a6"),
+              bls_hash: full_hash("0x" <> String.duplicate("b1", 32)),
+              pq_hash: full_hash("0x" <> String.duplicate("e5", 32)),
+              active_at: 0,
+              exiting: false,
+              release_at: nil,
+              forced_exit: false,
+              required: %Wei{value: Decimal.new(100_000_000_000_000_000_000_000)},
+              shortfall: %Wei{value: Decimal.new(0)},
+              penalty: nil,
+              penalty_box: %{
+                "seat_from" => 0,
+                "since" => 0,
+                "strikes" => 0,
+                "reason" => 0,
+                "reason_name" => nil,
+                "active" => false,
+                "epochs_left" => 0
+              },
+              bond_block_number: 70
+            }
+          end
+        )
+
+        block = insert(:block, number: 70)
+
+        for {{_, address, _}, amount} <- Enum.zip(@members, [40, 20, 30]) do
+          insert(:withdrawal,
+            block: block,
+            block_hash: block.hash,
+            validator_index: 6,
+            amount: %Wei{value: Decimal.new(amount * 1_000_000_000_000_000_000)},
+            shn_reward_type: "committee",
+            shn_validator_hash: address_hash(address)
+          )
+        end
+
+        insert(:withdrawal, block: block, block_hash: block.hash, validator_index: 6, shn_reward_type: "support")
+        :ok
+      end
+
+      test "the epochs, the newest first, the running one current", %{conn: conn} do
+        epochs()
+        response = conn |> get("/api/v2/shinerium/epochs") |> json_response(200)
+
+        assert [running, ended] = response["items"]
+        assert response["next_page_params"] == nil
+
+        assert %{"number" => 7, "is_current" => true, "ended_at" => nil, "qcs" => nil, "signed" => nil} = running
+        assert %{"first_block_number" => 71, "end_block_number" => nil, "members_count" => 3} = running
+
+        assert %{"number" => 6, "is_current" => false, "qcs" => 4, "signed" => 9, "removed_count" => 1} = ended
+        assert %{"first_block_number" => 61, "end_block_number" => 70, "joined_count" => 1} = ended
+        assert ended["started_at"] == "2026-11-06T11:00:00.000000Z"
+
+        response = conn |> get("/api/v2/shinerium/epochs", %{"number" => "7"}) |> json_response(200)
+        assert Enum.map(response["items"], & &1["number"]) == [6]
+      end
+
+      test "an epoch's committee: names, signatures, removals, rewards and the nodes that join", %{conn: conn} do
+        epochs()
+        response = conn |> get("/api/v2/shinerium/epochs/6") |> json_response(200)
+
+        assert %{"number" => 6, "next_first" => 1, "signed" => 9, "removed_count" => 1} = response
+        assert [first, second, third] = response["members"]
+
+        assert first["name"] == "SCM01"
+        assert first["identity"] == "0x7a8c7e56b6d2741a685511134b3e7e44c7a044784566e2c84e91816a730ea791"
+        assert first["ed_address_hash"] == "0x62adbfea805c0baf48b88a9e8c011dae7e450765"
+        assert {first["signed"], first["removal"], first["reward"]} == {4, nil, "40000000000000000000"}
+        assert first["location"]["country"] == "CA"
+
+        assert {second["name"], second["signed"]} == {nil, 2}
+        assert second["removal"] == %{"code" => 2, "name" => "offline"}
+        assert {third["index"], third["reward"]} == {2, "30000000000000000000"}
+
+        assert [joined] = response["joined"]
+        assert joined["identity"] == "0xab" <> String.duplicate("cd", 31)
+        assert joined["ed_address_hash"] == "0x936b096aeda0db3195df7d3c4d6585098e5643e1"
+
+        running = conn |> get("/api/v2/shinerium/epochs/7") |> json_response(200)
+        assert running["members"] |> Enum.map(&{&1["signed"], &1["reward"]}) |> Enum.uniq() == [{nil, nil}]
+        assert {running["joined"], running["signed"], running["removed_count"]} == {nil, nil, nil}
+
+        assert conn |> get("/api/v2/shinerium/epochs/8") |> json_response(404)
+      end
+
+      test "the validators, the committee's first, with their epochs, signatures and rewards", %{conn: conn} do
+        epochs()
+
+        # an identity seen only among the nodes joining a committee
+        Consensus.upsert_validators([
+          %{
+            identity: full_hash("0x" <> String.duplicate("ee", 32)),
+            ed_address_hash: address_hash("0x00000000000000000000000000000000000000ee")
+          }
+        ])
+
+        response = conn |> get("/api/v2/shinerium/validators") |> json_response(200)
+        assert length(response["items"]) == 4
+
+        [scm01 | _] = response["items"]
+        assert %{"name" => "SCM01", "is_member" => true, "epochs" => 2, "first_epoch" => 6, "last_epoch" => 7} = scm01
+        assert %{"signed" => 4, "qcs" => 4, "status" => "active", "genesis" => true} = scm01
+        assert %{"rewards_total" => "40000000000000000000", "rewards_count" => 1} = scm01
+
+        outsider = List.last(response["items"])
+
+        assert %{"is_member" => false, "epochs" => 0, "signed" => nil, "rewards_total" => nil, "status" => nil} =
+                 outsider
+      end
+
+      test "a validator by its identity or its address, its bond and its epochs", %{conn: conn} do
+        epochs()
+        {identity, address, _} = hd(@members)
+
+        response = conn |> get("/api/v2/shinerium/validators/#{identity}") |> json_response(200)
+        assert response == conn |> get("/api/v2/shinerium/validators/#{address}") |> json_response(200)
+
+        assert %{"name" => "SCM01", "amount" => "100000000000000000000000", "shortfall" => "0"} = response
+        assert %{"bond_block_number" => 70, "release_at" => nil, "penalty" => nil} = response
+        assert response["penalty_box"]["active"] == false
+
+        response = conn |> get("/api/v2/shinerium/validators/#{identity}/epochs") |> json_response(200)
+        assert [running, ended] = response["items"]
+        assert {running["epoch_number"], running["signed"], running["qcs"]} == {7, nil, nil}
+
+        assert %{"epoch_number" => 6, "index" => 0, "signed" => 4, "qcs" => 4, "reward" => "40000000000000000000"} =
+                 ended
+
+        {other, _, _} = Enum.at(@members, 1)
+        response = conn |> get("/api/v2/shinerium/validators/#{other}/epochs") |> json_response(200)
+        assert List.last(response["items"])["removal"] == %{"code" => 2, "name" => "offline"}
+
+        assert conn |> get("/api/v2/shinerium/validators/0x#{String.duplicate("11", 32)}") |> json_response(404)
+        assert conn |> get("/api/v2/shinerium/validators/0x1234") |> json_response(422)
+      end
+
+      test "a block's epoch, view and certificates, their signers named", %{conn: conn} do
+        epochs()
+
+        parent = insert(:block, number: 72, shn_epoch: 7, shn_view: 3)
+
+        block =
+          insert(:block,
+            number: 73,
+            parent_hash: parent.hash,
+            shn_epoch: 7,
+            shn_view: 4,
+            shn_justify_epoch: 7,
+            shn_justify_view: 3,
+            shn_justify_scheme: 1,
+            shn_justify_signers: [0, 2]
+          )
+
+        insert(:block,
+          number: 74,
+          parent_hash: block.hash,
+          shn_epoch: 7,
+          shn_view: 5,
+          shn_justify_epoch: 7,
+          shn_justify_view: 4,
+          shn_justify_scheme: 3,
+          shn_justify_signers: [0, 1, 2]
+        )
+
+        response = conn |> get("/api/v2/blocks/#{block.number}") |> json_response(200)
+        assert %{"epoch" => 7, "view" => 4} = response["shinerium"]
+        assert response["shinerium"]["justify"] == %{"epoch" => 7, "view" => 3, "scheme" => 1, "signers_count" => 2}
+
+        response = conn |> get("/api/v2/shinerium/blocks/#{block.number}/consensus") |> json_response(200)
+        assert %{"epoch" => 7, "view" => 4} = response
+
+        justify = response["justify"]
+        assert {justify["certified_block_number"], justify["carried_by_block_number"]} == {72, 73}
+        assert justify["certified_block_hash"] == to_string(parent.hash)
+        assert {justify["scheme"], justify["committee_size"]} == {%{"id" => 1, "name" => "BLS"}, 3}
+        assert Enum.map(justify["signers"], &{&1["index"], &1["name"]}) == [{0, "SCM01"}, {2, "SCM03"}]
+
+        certificate = response["certificate"]
+        assert {certificate["certified_block_number"], certificate["carried_by_block_number"]} == {73, 74}
+        assert certificate["scheme"]["id"] == 3
+        assert Enum.map(certificate["signers"], & &1["index"]) == [0, 1, 2]
+
+        assert Enum.at(certificate["signers"], 1)["ed_address_hash"] ==
+                 "0x9434c7b49e217ba9a65c427b8de9cff2c77fde80"
+
+        response = conn |> get("/api/v2/shinerium/blocks/#{parent.hash}/consensus") |> json_response(200)
+        assert response["justify"] == nil
+        assert response["certificate"]["carried_by_block_number"] == 73
       end
     end
   end

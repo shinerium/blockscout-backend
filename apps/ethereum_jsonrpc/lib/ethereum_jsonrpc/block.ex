@@ -70,7 +70,13 @@ defmodule EthereumJSONRPC.Block do
                              {optional(:shn_total_supply), non_neg_integer()},
                              {optional(:shn_block_access_list_hash), EthereumJSONRPC.hash()},
                              {optional(:shn_poq_miner_hash), EthereumJSONRPC.address()},
-                             {optional(:shn_anchor_chain_hash), EthereumJSONRPC.hash()}
+                             {optional(:shn_anchor_chain_hash), EthereumJSONRPC.hash()},
+                             {optional(:shn_epoch), non_neg_integer()},
+                             {optional(:shn_view), non_neg_integer()},
+                             {optional(:shn_justify_epoch), non_neg_integer()},
+                             {optional(:shn_justify_view), non_neg_integer()},
+                             {optional(:shn_justify_scheme), non_neg_integer()},
+                             {optional(:shn_justify_signers), [non_neg_integer()]}
                            ]
                          )
 
@@ -604,8 +610,11 @@ defmodule EthereumJSONRPC.Block do
 
     :shinerium ->
       # Only the fields the node served: a block of another node has none of them.
+      # `epoch`, `view` and `justify` come with R4 (the node's 0.2.0-39ebea86), on a
+      # block the FHS-C engine made; the justify is the parent's certificate.
       defp chain_type_fields(params, elixir) do
-        EthereumJSONRPC.put_if_present(params, elixir, [
+        params
+        |> EthereumJSONRPC.put_if_present(elixir, [
           {"blockType", :shn_block_type},
           {"controlBlockNumber", :shn_control_block_number},
           {"controlBlockHash", :shn_control_block_hash},
@@ -613,9 +622,23 @@ defmodule EthereumJSONRPC.Block do
           {"totalSupply", :shn_total_supply},
           {"blockAccessListHash", :shn_block_access_list_hash},
           {"poqMiner", :shn_poq_miner_hash},
-          {"anchorChainHash", :shn_anchor_chain_hash}
+          {"anchorChainHash", :shn_anchor_chain_hash},
+          {"epoch", :shn_epoch},
+          {"view", :shn_view}
         ])
+        |> put_justify(Map.get(elixir, "justify"))
       end
+
+      defp put_justify(params, %{epoch: epoch, view: view, scheme: scheme, signers: signers}) do
+        Map.merge(params, %{
+          shn_justify_epoch: epoch,
+          shn_justify_view: view,
+          shn_justify_scheme: scheme,
+          shn_justify_signers: signers
+        })
+      end
+
+      defp put_justify(params, _), do: params
 
     _ ->
       defp chain_type_fields(params, _), do: params
@@ -1020,8 +1043,17 @@ defmodule EthereumJSONRPC.Block do
            do: {key, value}
 
       defp entry_to_elixir({key, quantity}, _block)
-           when key in ~w(controlBlockNumber reward totalSupply) and not is_nil(quantity) do
+           when key in ~w(controlBlockNumber reward totalSupply epoch view) and not is_nil(quantity) do
         {key, quantity_to_integer(quantity)}
+      end
+
+      # The parent's quorum certificate; one the explorer cannot read is left out.
+      defp entry_to_elixir({"justify" = key, justify}, _block) do
+        # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+        case EthereumJSONRPC.Shinerium.QuorumCertificate.decode(justify) do
+          {:ok, certificate} -> {key, certificate}
+          :error -> {:ignore, :ignore}
+        end
       end
 
     _ ->

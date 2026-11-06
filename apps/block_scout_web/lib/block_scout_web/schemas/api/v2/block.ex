@@ -223,9 +223,31 @@ defmodule BlockScoutWeb.Schemas.API.V2.Block.ChainTypeCustomizations do
       total_supply: General.IntegerStringNullable,
       block_access_list_hash: General.FullHashNullable,
       poq_miner_hash: General.AddressHashNullable,
-      anchor_chain_hash: General.FullHashNullable
+      anchor_chain_hash: General.FullHashNullable,
+      epoch: %Schema{
+        type: :integer,
+        nullable: true,
+        description: "The header's epoch (for a carrier, the epoch it ends); null for a block of no FHS-C view."
+      },
+      view: %Schema{type: :integer, nullable: true, description: "The header's view."},
+      justify: %Schema{
+        type: :object,
+        nullable: true,
+        description: "The quorum certificate of the parent that the block carries.",
+        properties: %{
+          epoch: %Schema{type: :integer, nullable: false},
+          view: %Schema{type: :integer, nullable: false},
+          scheme: %Schema{type: :integer, nullable: false, description: "1 BLS, 3 hybrid."},
+          signers_count: %Schema{type: :integer, nullable: false}
+        },
+        required: [:epoch, :view, :scheme, :signers_count],
+        additionalProperties: false
+      }
     },
     required: [
+      :epoch,
+      :view,
+      :justify,
       :block_type,
       :control_block_number,
       :control_block_hash,

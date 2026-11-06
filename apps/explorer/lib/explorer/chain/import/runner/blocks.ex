@@ -768,12 +768,18 @@ defmodule Explorer.Chain.Import.Runner.Blocks do
         shn_total_supply: dynamic(fragment("EXCLUDED.shn_total_supply")),
         shn_block_access_list_hash: dynamic(fragment("EXCLUDED.shn_block_access_list_hash")),
         shn_poq_miner_hash: dynamic(fragment("EXCLUDED.shn_poq_miner_hash")),
-        shn_anchor_chain_hash: dynamic(fragment("EXCLUDED.shn_anchor_chain_hash"))
+        shn_anchor_chain_hash: dynamic(fragment("EXCLUDED.shn_anchor_chain_hash")),
+        shn_epoch: dynamic(fragment("EXCLUDED.shn_epoch")),
+        shn_view: dynamic(fragment("EXCLUDED.shn_view")),
+        shn_justify_epoch: dynamic(fragment("EXCLUDED.shn_justify_epoch")),
+        shn_justify_view: dynamic(fragment("EXCLUDED.shn_justify_view")),
+        shn_justify_scheme: dynamic(fragment("EXCLUDED.shn_justify_scheme")),
+        shn_justify_signers: dynamic(fragment("EXCLUDED.shn_justify_signers"))
       ],
       dynamic(
         [block],
         fragment(
-          "(EXCLUDED.shn_block_type, EXCLUDED.shn_control_block_number, EXCLUDED.shn_control_block_hash, EXCLUDED.shn_reward, EXCLUDED.shn_total_supply, EXCLUDED.shn_block_access_list_hash, EXCLUDED.shn_poq_miner_hash, EXCLUDED.shn_anchor_chain_hash) IS DISTINCT FROM (?, ?, ?, ?, ?, ?, ?, ?)",
+          "(EXCLUDED.shn_block_type, EXCLUDED.shn_control_block_number, EXCLUDED.shn_control_block_hash, EXCLUDED.shn_reward, EXCLUDED.shn_total_supply, EXCLUDED.shn_block_access_list_hash, EXCLUDED.shn_poq_miner_hash, EXCLUDED.shn_anchor_chain_hash, EXCLUDED.shn_epoch, EXCLUDED.shn_view, EXCLUDED.shn_justify_epoch, EXCLUDED.shn_justify_view, EXCLUDED.shn_justify_scheme, EXCLUDED.shn_justify_signers) IS DISTINCT FROM (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           block.shn_block_type,
           block.shn_control_block_number,
           block.shn_control_block_hash,
@@ -781,7 +787,13 @@ defmodule Explorer.Chain.Import.Runner.Blocks do
           block.shn_total_supply,
           block.shn_block_access_list_hash,
           block.shn_poq_miner_hash,
-          block.shn_anchor_chain_hash
+          block.shn_anchor_chain_hash,
+          block.shn_epoch,
+          block.shn_view,
+          block.shn_justify_epoch,
+          block.shn_justify_view,
+          block.shn_justify_scheme,
+          block.shn_justify_signers
         )
       )
     }
