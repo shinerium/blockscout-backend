@@ -45,6 +45,8 @@ defmodule Explorer.Chain.Shinerium.Epoch do
   * `absent_kept` - the members absent at its end that stay in the committee.
   * `next_first` - the committee index of the member the next committee starts with.
   * `joined` - the nodes that join at its end, best first.
+  * `record_complete` - whether the record that ends it was read from a node
+    that serves its `correlated` and `slow` (block-explorer-plan 11.18).
   """
   @primary_key {:number, :integer, autogenerate: false}
   typed_schema "shinerium_epochs" do
@@ -59,6 +61,7 @@ defmodule Explorer.Chain.Shinerium.Epoch do
     field(:absent_kept, :integer)
     field(:next_first, :integer)
     field(:joined, {:array, :map})
+    field(:record_complete, :boolean, default: false)
 
     has_many(:members, EpochMember, foreign_key: :epoch_number, references: :number)
 

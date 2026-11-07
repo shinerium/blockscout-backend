@@ -2,6 +2,7 @@
 defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Validator.Common do
   @moduledoc false
   alias BlockScoutWeb.Schemas.API.V2.General
+  alias BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch
   alias OpenApiSpex.Schema
 
   def properties do
@@ -29,7 +30,18 @@ defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Validator.Common do
       },
       qcs: %Schema{type: :integer, nullable: true, description: "The certificates of those epochs."},
       rewards_total: General.IntegerStringNullable,
-      rewards_count: %Schema{type: :integer, nullable: false}
+      rewards_count: %Schema{type: :integer, nullable: false},
+      location: %Schema{
+        Epoch.Common.location()
+        | description:
+            "Its location in the latest epoch that gives one, as the committee has it: where the beacons " <>
+              "placed it when it joined, or what the genesis declares (`source` \"declared\"); null if none does."
+      },
+      location_epoch: %Schema{
+        type: :integer,
+        nullable: true,
+        description: "The epoch whose committee gives `location`."
+      }
     }
   end
 end
@@ -137,16 +149,16 @@ defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Validator.Epoch do
   alias BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch.Common
   alias OpenApiSpex.Schema
 
-  @properties %{
-    epoch_number: %Schema{type: :integer, nullable: false},
-    index: %Schema{type: :integer, nullable: false, description: "Its seat in the epoch's committee."},
-    started_at: General.Timestamp,
-    ended_at: General.TimestampNullable,
-    signed: %Schema{type: :integer, nullable: true},
-    qcs: %Schema{type: :integer, nullable: true},
-    removal: Common.removal(),
-    reward: General.IntegerStringNullable
-  }
+  @properties Map.merge(Common.record_properties(), %{
+                epoch_number: %Schema{type: :integer, nullable: false},
+                index: %Schema{type: :integer, nullable: false, description: "Its seat in the epoch's committee."},
+                started_at: General.Timestamp,
+                ended_at: General.TimestampNullable,
+                signed: %Schema{type: :integer, nullable: true},
+                qcs: %Schema{type: :integer, nullable: true},
+                removal: Common.removal(),
+                reward: General.IntegerStringNullable
+              })
 
   OpenApiSpex.schema(%{
     title: "ShineriumValidatorEpoch",

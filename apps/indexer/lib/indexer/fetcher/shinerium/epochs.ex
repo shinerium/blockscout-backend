@@ -9,6 +9,9 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
     (`shn_getControlBlockByNumber`), its committee (`shn_committeeMembers`) and,
     once it has ended, the next control block, whose record says how it went.
     A running epoch is stored as far as it is known, and again when it ends.
+  - Records: an ended epoch stored from a node that did not serve the record's
+    `correlated` and `slow` (before the tree 0.2.1-2da5803b) is read again
+    once the node serves them, a hundred a round (block-explorer-plan 11.18).
   - Validators: each identity seen in a committee, or among the nodes that join
     one, gets a row; its bond is read with `shn_getValidator` at the latest
     block, the identities read longest ago first. A node without that method
@@ -25,6 +28,7 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
   @interval :timer.minutes(1)
   # epochs a round asks about in one JSON-RPC batch (three calls each at most)
   @epochs_per_batch 25
+  @records_per_round 100
   @validators_per_round 50
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -54,13 +58,15 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
   end
 
   @doc """
-  One round: the epochs not yet ended, then the validators' bonds.
+  One round: the epochs not yet ended, the records to read again, then the
+  validators' bonds.
   """
   @spec update(map()) :: :ok
   def update(%{json_rpc_named_arguments: args}) do
     with {:ok, latest} <- call(args, "shn_controlBlockNumber", []),
          {:ok, latest} <- quantity(latest) do
       sync_epochs_up_to(latest, args)
+      complete_records(latest, args)
     else
       error -> Logger.warning("Shinerium epochs: the latest control block: #{inspect(error)}")
     end
@@ -88,7 +94,44 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
   end
 
   defp sync_epochs(numbers, latest, args) do
-    control_numbers = Enum.uniq(numbers ++ Enum.filter([List.last(numbers) + 1], &(&1 <= latest)))
+    case fetch_epochs(numbers, latest, args) do
+      {:ok, epochs, members} -> store_epochs(numbers, epochs, members)
+      :error -> :error
+    end
+  end
+
+  # Once the latest ended epoch's record has `correlated` and `slow`, the ended
+  # epochs stored without them, the oldest first, a batch at a time. Only an
+  # epoch whose record now has them is written again, so that an ended epoch
+  # never goes back to running, nor to a record read with less.
+  defp complete_records(latest, args) do
+    if Consensus.records_complete?() do
+      @records_per_round
+      |> Consensus.incomplete_epochs()
+      |> Enum.chunk_every(@epochs_per_batch)
+      |> Enum.reduce_while(:ok, &continue_completion(&1, &2, latest, args))
+    end
+  end
+
+  defp continue_completion(numbers, :ok, latest, args) do
+    with {:ok, epochs, members} <- fetch_epochs(numbers, latest, args),
+         complete = Enum.filter(epochs, & &1.record_complete),
+         :ok <- store_epochs(numbers, complete, members_of(members, complete)) do
+      {:cont, :ok}
+    else
+      _ -> {:halt, :error}
+    end
+  end
+
+  defp members_of(members, epochs) do
+    numbers = MapSet.new(epochs, & &1.number)
+    Enum.filter(members, &MapSet.member?(numbers, &1.epoch_number))
+  end
+
+  # Each epoch's control block and committee, and the next control block, whose
+  # record ends it, where it exists.
+  defp fetch_epochs(numbers, latest, args) do
+    control_numbers = Enum.uniq(numbers ++ Enum.filter(Enum.map(numbers, &(&1 + 1)), &(&1 <= latest)))
 
     requests =
       Enum.map(control_numbers, &request({:control, &1}, "shn_getControlBlockByNumber", [integer_to_quantity(&1)])) ++
@@ -96,18 +139,22 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
 
     with {:ok, responses} <- batch(args, requests),
          {:ok, epochs, members} <- build(numbers, responses) do
-      case Consensus.import_epochs(epochs, members) do
-        {:ok, _} ->
-          Consensus.upsert_validators(validator_rows(epochs, members))
-          :ok
-
-        {:error, reason} ->
-          Logger.error("Shinerium epochs: storing #{inspect(numbers)} failed: #{inspect(reason)}")
-          :error
-      end
+      {:ok, epochs, members}
     else
       error ->
         Logger.warning("Shinerium epochs: #{List.first(numbers)}..#{List.last(numbers)}: #{inspect(error)}")
+        :error
+    end
+  end
+
+  defp store_epochs(numbers, epochs, members) do
+    case Consensus.import_epochs(epochs, members) do
+      {:ok, _} ->
+        Consensus.upsert_validators(validator_rows(epochs, members))
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Shinerium epochs: storing #{inspect(numbers)} failed: #{inspect(reason)}")
         :error
     end
   end
@@ -136,6 +183,8 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
   end
 
   defp epoch_rows(number, control, committee, next) do
+    size = length(committee)
+
     epoch =
       Map.merge(
         %{
@@ -144,15 +193,25 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
           committee_hash: cast(Hash.Full, control["committeeHash"]),
           started_at: time(control["timestamp"]),
           carrier_block_number: carrier(number, control),
-          members_count: length(committee)
+          members_count: size
         },
         epoch_end(number, next)
       )
 
+    # The record that ends the epoch counts its committee's correlated misses;
+    # the one that seats the committee, its control block's own, counts the
+    # slow epochs of the committee it seats.
+    ending = record(next)
+
+    record_lists = %{
+      correlated: per_member(ending, "correlated", size),
+      slow: per_member(record(control), "slow", size)
+    }
+
     members =
       committee
       |> Enum.with_index()
-      |> Enum.map(&member_row(&1, number, record(next)))
+      |> Enum.map(&member_row(&1, number, ending, record_lists))
 
     {epoch, members}
   end
@@ -161,10 +220,30 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
   defp record(%{"epoch" => %{} = record}), do: record
   defp record(_next), do: nil
 
+  # A record's list with an entry for each member of a committee of `size`, or
+  # nil: absent (a node before 0.2.1-2da5803b, or `correlated` on a network
+  # without the correlation penalty), null, or of another length.
+  defp per_member(%{} = record, key, size) do
+    case record[key] do
+      list when is_list(list) and length(list) == size -> list
+      _ -> nil
+    end
+  end
+
+  defp per_member(nil, _key, _size), do: nil
+
   defp epoch_end(number, next) do
     case record(next) do
       nil ->
-        %{ended_at: nil, end_block_number: nil, qcs: nil, absent_kept: nil, next_first: nil, joined: nil}
+        %{
+          ended_at: nil,
+          end_block_number: nil,
+          qcs: nil,
+          absent_kept: nil,
+          next_first: nil,
+          joined: nil,
+          record_complete: false
+        }
 
       record ->
         %{
@@ -173,12 +252,14 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
           qcs: record["qcs"],
           absent_kept: record["absentKept"],
           next_first: record["first"],
-          joined: Enum.map(record["joined"] || [], &node_summary/1)
+          joined: Enum.map(record["joined"] || [], &node_summary/1),
+          # a node that serves them always has `slow`, null or not
+          record_complete: Map.has_key?(record, "slow")
         }
     end
   end
 
-  defp member_row({node, index}, number, record) do
+  defp member_row({node, index}, number, record, %{correlated: correlated, slow: slow}) do
     %{
       epoch_number: number,
       index: index,
@@ -188,6 +269,8 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
       pq_key_hash: cast(Hash.Full, prefixed(node["pqKeyHash"])),
       location: node["location"],
       signed: record && Enum.at(record["signed"] || [], index),
+      correlated: correlated && Enum.at(correlated, index),
+      slow: slow && Enum.at(slow, index),
       removal_reason: record && removal_reason(record, index)
     }
   end

@@ -16,6 +16,36 @@ defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch.Common do
     }
   end
 
+  @doc "A member's figures from the records besides its signatures (block-explorer-plan 11.18)."
+  def record_properties do
+    %{
+      correlated: %Schema{
+        type: :integer,
+        nullable: true,
+        description:
+          "Its correlated misses: each certificate it did not sign counts as many times as members of its " <>
+            "autonomous system did not sign it, itself included, at most f + 1. Null while the epoch runs, " <>
+            "on a network without the correlation penalty, or from a record read without them."
+      },
+      credited: %Schema{
+        type: :integer,
+        nullable: true,
+        description:
+          "What the carrier that ends the epoch credits it with, its share of the reward scaled by it: " <>
+            "the certificates less its correlated misses under the correlation penalty, its signatures " <>
+            "without it. Null while the epoch runs, or from a record read without `correlated`."
+      },
+      slow: %Schema{
+        type: :integer,
+        nullable: true,
+        description:
+          "The consecutive epochs before this one that found it slow, from the record of the control " <>
+            "block that seats the committee; at two it leads no views. Null for the genesis's committee " <>
+            "or from a record read without it."
+      }
+    }
+  end
+
   def removal do
     %Schema{
       type: :object,
@@ -95,32 +125,23 @@ defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch.Detailed do
   alias BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch.Common
   alias OpenApiSpex.Schema
 
+  @member_properties Map.merge(Common.record_properties(), %{
+                       index: %Schema{type: :integer, nullable: false},
+                       identity: General.FullHash,
+                       ed_address_hash: General.AddressHash,
+                       name: %Schema{type: :string, nullable: true},
+                       coinbase_hash: General.AddressHashNullable,
+                       pq_key_hash: General.FullHashNullable,
+                       location: Common.location(),
+                       signed: %Schema{type: :integer, nullable: true},
+                       removal: Common.removal(),
+                       reward: General.IntegerStringNullable
+                     })
+
   @member %Schema{
     type: :object,
-    properties: %{
-      index: %Schema{type: :integer, nullable: false},
-      identity: General.FullHash,
-      ed_address_hash: General.AddressHash,
-      name: %Schema{type: :string, nullable: true},
-      coinbase_hash: General.AddressHashNullable,
-      pq_key_hash: General.FullHashNullable,
-      location: Common.location(),
-      signed: %Schema{type: :integer, nullable: true},
-      removal: Common.removal(),
-      reward: General.IntegerStringNullable
-    },
-    required: [
-      :index,
-      :identity,
-      :ed_address_hash,
-      :name,
-      :coinbase_hash,
-      :pq_key_hash,
-      :location,
-      :signed,
-      :removal,
-      :reward
-    ],
+    properties: @member_properties,
+    required: Map.keys(@member_properties),
     additionalProperties: false
   }
 

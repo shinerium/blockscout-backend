@@ -9,7 +9,7 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
 
   use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
 
-  alias Explorer.Chain.Shinerium.{Account, Epoch, Validator}
+  alias Explorer.Chain.Shinerium.{Account, Epoch, EpochMember, Validator}
   alias Explorer.Chain.Wei
 
   # The node's post-quantum signature schemes, as crypto/pqsig of the node
@@ -126,12 +126,12 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
       signed: if(ended?, do: members |> Enum.map(&(&1.member.signed || 0)) |> Enum.sum()),
       removed_count: if(ended?, do: Enum.count(members, &(&1.member.removal_reason != nil))),
       next_first: epoch.next_first,
-      members: Enum.map(members, &member_json/1),
+      members: Enum.map(members, &member_json(&1, epoch)),
       joined: epoch.joined && Enum.map(epoch.joined, &joined_json/1)
     })
   end
 
-  defp member_json(%{member: member, name: name, reward: reward}) do
+  defp member_json(%{member: member, name: name, reward: reward}, epoch) do
     %{
       index: member.index,
       identity: member.identity,
@@ -141,6 +141,9 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
       pq_key_hash: member.pq_key_hash,
       location: member.location,
       signed: member.signed,
+      correlated: member.correlated,
+      credited: EpochMember.credited(member, epoch),
+      slow: member.slow,
       removal: removal_json(member.removal_reason),
       reward: integer_string(reward)
     }
@@ -167,9 +170,10 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
   A validator in the list of validators (`/api/v2/shinerium/validators`).
   """
   @spec validator_json(map()) :: map()
-  def validator_json(%{validator: %Validator{} = validator, stats: stats, rewards: rewards, member: member}) do
+  def validator_json(%{validator: %Validator{} = validator, stats: stats, rewards: rewards, member: member} = row) do
     stats = stats || %{}
     rewards = rewards || %{}
+    location = Map.get(row, :location) || %{}
 
     %{
       identity: validator.identity,
@@ -185,7 +189,9 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
       signed: integer(Map.get(stats, :signed)),
       qcs: integer(Map.get(stats, :qcs)),
       rewards_total: integer_string(Map.get(rewards, :total)),
-      rewards_count: Map.get(rewards, :count) || 0
+      rewards_count: Map.get(rewards, :count) || 0,
+      location: Map.get(location, :location),
+      location_epoch: Map.get(location, :epoch_number)
     }
   end
 
@@ -225,6 +231,9 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
       ended_at: epoch.ended_at,
       signed: member.signed,
       qcs: if(member.signed, do: epoch.qcs),
+      correlated: member.correlated,
+      credited: EpochMember.credited(member, epoch),
+      slow: member.slow,
       removal: removal_json(member.removal_reason),
       reward: integer_string(reward)
     }

@@ -44,6 +44,25 @@ defmodule Indexer.Fetcher.Shinerium.EpochsTest do
       "location" => %{"country" => "GB", "region" => "England", "asn" => 63_473, "agreement" => 4}
     }
 
+    # What a node of the tree 0.2.1-2da5803b adds to each record: the ending
+    # committee's correlated misses and the slow epochs of the committee it
+    # seats. Control block 3's `correlated` has another length than the
+    # committee it counts, and its `slow` is null.
+    @record_fields %{
+      1 => %{"correlated" => [0, 1], "slow" => [0, 1]},
+      2 => %{"correlated" => [0, 3], "slow" => [1, 0]},
+      3 => %{"correlated" => [0], "slow" => nil}
+    }
+
+    defp control_block(number, served) do
+      fields = if number in served, do: Map.get(@record_fields, number, %{}), else: %{}
+
+      case control_block(number) do
+        %{"epoch" => record} = control -> %{control | "epoch" => Map.merge(record, fields)}
+        control -> control
+      end
+    end
+
     defp control_block(0) do
       %{
         "number" => "0x0",
@@ -144,8 +163,9 @@ defmodule Indexer.Fetcher.Shinerium.EpochsTest do
     end
 
     # The node as far as `latest`, its control blocks and committees; alice's bond
-    # is read, the others' are not (a node before R5 answers no bond at all).
-    defp node(latest, test_pid) do
+    # is read, the others' are not (a node before R5 answers no bond at all). The
+    # records of the control blocks in `served` have `correlated` and `slow`.
+    defp node(latest, test_pid, served \\ []) do
       stub(EthereumJSONRPC.Mox, :json_rpc, fn
         %{id: id, method: "shn_controlBlockNumber"}, _ ->
           send(test_pid, {:latest, id})
@@ -153,23 +173,35 @@ defmodule Indexer.Fetcher.Shinerium.EpochsTest do
 
         requests, _ when is_list(requests) ->
           send(test_pid, {:batch, Enum.map(requests, &{&1.method, &1.params})})
-          {:ok, Enum.map(requests, &answer/1)}
+          {:ok, Enum.map(requests, &answer(&1, served))}
       end)
     end
 
-    defp answer(%{id: id, method: "shn_getControlBlockByNumber", params: ["0x" <> n]}),
-      do: %{id: id, result: control_block(String.to_integer(n, 16))}
+    defp answer(%{id: id, method: "shn_getControlBlockByNumber", params: ["0x" <> n]}, served),
+      do: %{id: id, result: control_block(String.to_integer(n, 16), served)}
 
-    defp answer(%{id: id, method: "shn_committeeMembers", params: ["0x" <> n]}),
+    defp answer(%{id: id, method: "shn_committeeMembers", params: ["0x" <> n]}, _served),
       do: %{id: id, result: committee(String.to_integer(n, 16))}
 
-    defp answer(%{id: id, method: "shn_getValidator", params: ["0x" <> ed_public, "latest"]}) do
+    defp answer(%{id: id, method: "shn_getValidator", params: ["0x" <> ed_public, "latest"]}, _served) do
       if ed_public == @alice["edPublic"],
         do: %{id: id, result: bond(@alice, "SCM01")},
         else: %{id: id, error: %{code: -32_601, message: "the method shn_getValidator does not exist"}}
     end
 
     defp full_hash(hex), do: hex |> Hash.Full.cast() |> elem(1)
+
+    defp member_fields(epoch) do
+      Repo.all(
+        from(m in EpochMember,
+          where: m.epoch_number == ^epoch,
+          order_by: m.index,
+          select: {m.signed, m.correlated, m.slow}
+        )
+      )
+    end
+
+    defp complete(epoch), do: Repo.get!(Epoch, epoch).record_complete
 
     test "stores the ended epochs and the running one, their committees, and the validators' bonds" do
       node(2, self())
@@ -263,6 +295,84 @@ defmodule Indexer.Fetcher.Shinerium.EpochsTest do
       # alice's bond was read last round, so bob's and carol's come first
       assert_received {:batch, [{"shn_getValidator", [first, _]} | _]}
       refute first == "0x" <> @alice["edPublic"]
+    end
+
+    test "a node that serves the record's correlated and slow: each member's, from the records that end and seat it" do
+      node(2, self(), 0..3)
+      Epochs.update(%{json_rpc_named_arguments: @args})
+
+      # control block 1 ends epoch 0; the genesis's control block has no record
+      assert member_fields(0) == [{6, 0, nil}, {5, 1, nil}]
+      # control block 2 ends epoch 1, and control block 1 seated its committee
+      assert member_fields(1) == [{4, 0, 0}, {1, 3, 1}]
+      # epoch 2 runs: control block 2 seated its committee
+      assert member_fields(2) == [{nil, nil, 1}, {nil, nil, 0}]
+      assert Enum.map(0..2, &complete/1) == [true, true, false]
+
+      node(3, self(), 0..3)
+      Epochs.update(%{json_rpc_named_arguments: @args})
+
+      # control block 3's `correlated` counts another committee, and its `slow` is null
+      assert member_fields(2) == [{5, nil, 1}, {5, nil, 0}]
+      assert member_fields(3) == [{nil, nil, nil}, {nil, nil, nil}]
+      assert complete(2)
+    end
+
+    test "the ended epochs read from a node without them are read again once it serves them" do
+      node(2, self())
+      Epochs.update(%{json_rpc_named_arguments: @args})
+      assert member_fields(1) == [{4, nil, nil}, {1, nil, nil}]
+      assert Enum.map(0..2, &complete/1) == [false, false, false]
+
+      # the node still serves neither: nothing is read again
+      flush()
+      Epochs.update(%{json_rpc_named_arguments: @args})
+      assert_received {:batch, [{"shn_getControlBlockByNumber", ["0x2"]}, {"shn_committeeMembers", ["0x2"]}]}
+      assert_received {:batch, [{"shn_getValidator", _} | _]}
+      refute_received {:batch, _}
+
+      # updated: epoch 2 ends with them, and then epochs 0 and 1 are read again
+      node(3, self(), 0..3)
+      flush()
+      Epochs.update(%{json_rpc_named_arguments: @args})
+      assert_received {:batch, [{"shn_getControlBlockByNumber", ["0x2"]} | _]}
+      assert_received {:batch, again}
+
+      assert again ==
+               Enum.map(0..2, &{"shn_getControlBlockByNumber", ["0x#{&1}"]}) ++
+                 Enum.map(0..1, &{"shn_committeeMembers", ["0x#{&1}"]})
+
+      assert member_fields(0) == [{6, 0, nil}, {5, 1, nil}]
+      assert member_fields(1) == [{4, 0, 0}, {1, 3, 1}]
+      assert Enum.map(0..2, &complete/1) == [true, true, true]
+      assert Consensus.incomplete_epochs(10) == []
+    end
+
+    test "an epoch whose record still lacks them is not written again, and stays ended" do
+      node(2, self())
+      Epochs.update(%{json_rpc_named_arguments: @args})
+
+      # control block 1, which ends epoch 0, still comes without them
+      node(3, self(), 2..3)
+      Epochs.update(%{json_rpc_named_arguments: @args})
+
+      assert %Epoch{record_complete: false, qcs: 6, end_block_number: 12} = Repo.get!(Epoch, 0)
+      assert member_fields(0) == [{6, nil, nil}, {5, nil, nil}]
+      assert complete(1)
+      assert Consensus.last_ended_epoch() == 2
+      assert Consensus.incomplete_epochs(10) == [0]
+
+      # the next round asks again for epoch 0 alone
+      flush()
+      Epochs.update(%{json_rpc_named_arguments: @args})
+      assert_received {:batch, [{"shn_getControlBlockByNumber", ["0x3"]} | _]}
+      assert_received {:batch, again}
+
+      assert again == [
+               {"shn_getControlBlockByNumber", ["0x0"]},
+               {"shn_getControlBlockByNumber", ["0x1"]},
+               {"shn_committeeMembers", ["0x0"]}
+             ]
     end
 
     test "a node that answers no epoch stores nothing" do

@@ -18,8 +18,9 @@ defmodule Explorer.Chain.Shinerium.Consensus do
   alias Explorer.{PagingOptions, Repo}
 
   @epoch_fields ~w(control_block_hash committee_hash started_at carrier_block_number members_count ended_at
-                   end_block_number qcs absent_kept next_first joined updated_at)a
-  @member_fields ~w(identity ed_address_hash coinbase_hash pq_key_hash location signed removal_reason updated_at)a
+                   end_block_number qcs absent_kept next_first joined record_complete updated_at)a
+  @member_fields ~w(identity ed_address_hash coinbase_hash pq_key_hash location signed correlated slow
+                    removal_reason updated_at)a
 
   @doc """
   Stores epochs and their committees, each epoch with all its members, replacing
@@ -75,6 +76,35 @@ defmodule Explorer.Chain.Shinerium.Consensus do
   @spec last_ended_epoch() :: non_neg_integer() | nil
   def last_ended_epoch do
     Repo.one(from(e in Epoch, where: not is_nil(e.ended_at), select: max(e.number)))
+  end
+
+  @doc """
+  Whether the node serves the record's `correlated` and `slow`: the latest
+  ended epoch was stored from a record that has them.
+  """
+  @spec records_complete?() :: boolean()
+  def records_complete? do
+    Repo.one(
+      from(e in Epoch,
+        where: not is_nil(e.ended_at),
+        order_by: [desc: e.number],
+        limit: 1,
+        select: e.record_complete
+      )
+    ) == true
+  end
+
+  @doc "The ended epochs stored from a record without `correlated` and `slow`, the oldest first."
+  @spec incomplete_epochs(non_neg_integer()) :: [non_neg_integer()]
+  def incomplete_epochs(limit) do
+    Repo.all(
+      from(e in Epoch,
+        where: not is_nil(e.ended_at) and not e.record_complete,
+        order_by: [asc: e.number],
+        limit: ^limit,
+        select: e.number
+      )
+    )
   end
 
   @doc "The identities of the validators, the ones read longest ago first."
@@ -171,8 +201,9 @@ defmodule Explorer.Chain.Shinerium.Consensus do
   @doc """
   The validators, with what their committees say of them: the epochs they
   served, the certificates of their ended epochs and how many they signed, the
-  rewards, and whether they sit in the epoch that runs now. Members first, then
-  by epochs served.
+  rewards, whether they sit in the epoch that runs now, and their location in
+  the latest epoch that gives one (`location/1`). Members first, then by epochs
+  served.
   """
   @spec validators(non_neg_integer()) :: [map()]
   def validators(limit \\ 1_000) do
@@ -200,18 +231,28 @@ defmodule Explorer.Chain.Shinerium.Consensus do
         select: %{ed_address_hash: w.shn_validator_hash, total: sum(w.amount), count: count(w.index)}
       )
 
+    locations =
+      from(m in EpochMember,
+        where: not is_nil(m.location),
+        distinct: m.identity,
+        order_by: [desc: m.epoch_number],
+        select: %{identity: m.identity, location: m.location, epoch_number: m.epoch_number}
+      )
+
     from(v in Validator,
       left_join: s in subquery(stats),
       on: s.identity == v.identity,
       left_join: r in subquery(rewards),
       on: r.ed_address_hash == v.ed_address_hash,
+      left_join: l in subquery(locations),
+      on: l.identity == v.identity,
       order_by: [
         desc: fragment("COALESCE(? = ?, false)", s.last_epoch, ^(current || -1)),
         desc_nulls_last: s.epochs,
         asc: v.identity
       ],
       limit: ^limit,
-      select: %{validator: v, stats: s, rewards: r}
+      select: %{validator: v, stats: s, rewards: r, location: l}
     )
     |> Repo.all()
     |> Enum.map(&with_membership(&1, current))
@@ -268,7 +309,24 @@ defmodule Explorer.Chain.Shinerium.Consensus do
       )
 
     stats = if stats && stats.epochs > 0, do: stats
-    with_membership(%{validator: validator, stats: stats, rewards: rewards}, current)
+    with_membership(%{validator: validator, stats: stats, rewards: rewards, location: location(identity)}, current)
+  end
+
+  @doc """
+  A validator's location in the latest epoch that gives one, as the node's
+  committee has it (the beacons' measurement when it joined, or what the
+  genesis declares), with that epoch's number; nil if none does.
+  """
+  @spec location(Hash.Full.t()) :: %{location: map(), epoch_number: non_neg_integer()} | nil
+  def location(identity) do
+    Repo.one(
+      from(m in EpochMember,
+        where: m.identity == ^identity and not is_nil(m.location),
+        order_by: [desc: m.epoch_number],
+        limit: 1,
+        select: %{location: m.location, epoch_number: m.epoch_number}
+      )
+    )
   end
 
   @doc """

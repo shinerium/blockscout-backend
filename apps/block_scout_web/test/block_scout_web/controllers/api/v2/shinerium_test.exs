@@ -399,7 +399,10 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
          "0xfc74dc5766df64f5a9ab70cb8fd6bfc51baf9368", "SCM03"}
       ]
 
-      defp member_rows(epoch, signed, removed) do
+      @location %{"country" => "CA", "region" => "Quebec", "asn" => 16_276, "source" => "declared"}
+      @measured %{"country" => "DE", "region" => "Hesse", "asn" => 24_940, "source" => "measured"}
+
+      defp member_rows(epoch, signed, removed, record \\ %{}) do
         @members
         |> Enum.with_index()
         |> Enum.map(fn {{identity, address, _name}, index} ->
@@ -410,8 +413,10 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
             ed_address_hash: address_hash(address),
             coinbase_hash: address_hash("0x0b5f7268a8081e9b871c902b3bd968443b3fa173"),
             pq_key_hash: full_hash("0x" <> String.duplicate("f9", 32)),
-            location: %{"country" => "CA", "region" => "Quebec", "asn" => 16_276, "source" => "declared"},
+            location: (record[:locations] && Enum.at(record[:locations], index)) || @location,
             signed: signed && Enum.at(signed, index),
+            correlated: record[:correlated] && Enum.at(record[:correlated], index),
+            slow: record[:slow] && Enum.at(record[:slow], index),
             removal_reason: Map.get(removed, index)
           }
         end)
@@ -430,6 +435,7 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
           qcs: if(ended?, do: 4),
           absent_kept: if(ended?, do: 0),
           next_first: if(ended?, do: 1),
+          record_complete: ended?,
           joined:
             if(ended?,
               do: [
@@ -444,12 +450,17 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
         }
       end
 
-      # Epoch 6 ended: member 1 signed 2 of 4 and left as offline; epoch 7 runs.
+      # Epoch 6 ended: member 1 signed 2 of 4 and left as offline. Members 1 and 2,
+      # of one autonomous system, both missed one certificate, which counts twice
+      # for each, so they are credited with 1 and 2. Member 2 had been found slow
+      # in the two epochs before, member 1 in one. Epoch 7 runs; the beacons placed
+      # member 2 again when it joined.
       defp epochs do
         {:ok, _} =
           Consensus.import_epochs(
             [epoch_row(6, true), epoch_row(7, false)],
-            member_rows(6, [4, 2, 3], %{1 => 2}) ++ member_rows(7, nil, %{})
+            member_rows(6, [4, 2, 3], %{1 => 2}, %{correlated: [0, 3, 2], slow: [0, 1, 2]}) ++
+              member_rows(7, nil, %{}, %{slow: [0, 0, 1], locations: [nil, nil, @measured]})
           )
 
         Consensus.upsert_validators(
@@ -544,12 +555,16 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
         assert second["removal"] == %{"code" => 2, "name" => "offline"}
         assert {third["index"], third["reward"]} == {2, "30000000000000000000"}
 
+        assert Enum.map(response["members"], &{&1["signed"], &1["correlated"], &1["credited"], &1["slow"]}) ==
+                 [{4, 0, 4, 0}, {2, 3, 1, 1}, {3, 2, 2, 2}]
+
         assert [joined] = response["joined"]
         assert joined["identity"] == "0xab" <> String.duplicate("cd", 31)
         assert joined["ed_address_hash"] == "0x936b096aeda0db3195df7d3c4d6585098e5643e1"
 
         running = conn |> get("/api/v2/shinerium/epochs/7") |> json_response(200)
         assert running["members"] |> Enum.map(&{&1["signed"], &1["reward"]}) |> Enum.uniq() == [{nil, nil}]
+        assert Enum.map(running["members"], &{&1["credited"], &1["slow"]}) == [{nil, 0}, {nil, 0}, {nil, 1}]
         assert {running["joined"], running["signed"], running["removed_count"]} == {nil, nil, nil}
 
         assert conn |> get("/api/v2/shinerium/epochs/8") |> json_response(404)
@@ -573,11 +588,18 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
         assert %{"name" => "SCM01", "is_member" => true, "epochs" => 2, "first_epoch" => 6, "last_epoch" => 7} = scm01
         assert %{"signed" => 4, "qcs" => 4, "status" => "active", "genesis" => true} = scm01
         assert %{"rewards_total" => "40000000000000000000", "rewards_count" => 1} = scm01
+        assert {scm01["location"], scm01["location_epoch"]} == {@location, 7}
+
+        # its latest epoch's location, where the beacons placed it when it joined
+        scm03 = Enum.find(response["items"], &(&1["name"] == "SCM03"))
+        assert %{"location" => %{"country" => "DE", "source" => "measured"}, "location_epoch" => 7} = scm03
 
         outsider = List.last(response["items"])
 
         assert %{"is_member" => false, "epochs" => 0, "signed" => nil, "rewards_total" => nil, "status" => nil} =
                  outsider
+
+        assert {outsider["location"], outsider["location_epoch"]} == {nil, nil}
       end
 
       test "a validator by its identity or its address, its bond and its epochs", %{conn: conn} do
@@ -590,6 +612,7 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
         assert %{"name" => "SCM01", "amount" => "100000000000000000000000", "shortfall" => "0"} = response
         assert %{"bond_block_number" => 70, "release_at" => nil, "penalty" => nil} = response
         assert response["penalty_box"]["active"] == false
+        assert {response["location"], response["location_epoch"]} == {@location, 7}
 
         response = conn |> get("/api/v2/shinerium/validators/#{identity}/epochs") |> json_response(200)
         assert [running, ended] = response["items"]
@@ -598,9 +621,13 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
         assert %{"epoch_number" => 6, "index" => 0, "signed" => 4, "qcs" => 4, "reward" => "40000000000000000000"} =
                  ended
 
+        assert {running["credited"], running["slow"]} == {nil, 0}
+        assert %{"correlated" => 0, "credited" => 4, "slow" => 0} = ended
+
         {other, _, _} = Enum.at(@members, 1)
         response = conn |> get("/api/v2/shinerium/validators/#{other}/epochs") |> json_response(200)
         assert List.last(response["items"])["removal"] == %{"code" => 2, "name" => "offline"}
+        assert %{"signed" => 2, "correlated" => 3, "credited" => 1, "slow" => 1} = List.last(response["items"])
 
         assert conn |> get("/api/v2/shinerium/validators/0x#{String.duplicate("11", 32)}") |> json_response(404)
         assert conn |> get("/api/v2/shinerium/validators/0x1234") |> json_response(422)
