@@ -367,6 +367,8 @@ defmodule BlockScoutWeb.Routers.ApiRouter do
     scope "/shinerium" do
       chain_scope :shinerium do
         get("/addresses/:address_hash_param", V2.ShineriumController, :address)
+        get("/metadata/:metadata_hash_param", V2.ShineriumController, :metadata)
+        get("/metadata/:metadata_hash_param/transactions", V2.ShineriumController, :metadata_transactions)
         get("/epochs", V2.ShineriumController, :epochs)
         get("/epochs/:number", V2.ShineriumController, :epoch)
         get("/validators", V2.ShineriumController, :validators)

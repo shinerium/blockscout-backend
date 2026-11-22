@@ -3,16 +3,19 @@ defmodule BlockScoutWeb.API.V2.ShineriumController do
   use BlockScoutWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  import BlockScoutWeb.Chain, only: [parse_block_hash_or_number_param: 1, paginate_list: 4]
+  import BlockScoutWeb.Chain, only: [parse_block_hash_or_number_param: 1, paginate_list: 3, paginate_list: 4]
+
+  import Explorer.Chain.Address.MetadataPreloader, only: [maybe_preload_ens_and_metadata: 2]
 
   alias BlockScoutWeb.AccessHelper
-  alias BlockScoutWeb.API.V2.ShineriumView
+  alias BlockScoutWeb.API.V2.{ShineriumView, TransactionView}
   alias BlockScoutWeb.Schemas.API.V2.ErrorResponses.NotFoundResponse
   alias Explorer.{Chain, PagingOptions}
-  alias Explorer.Chain.Shinerium.{Account, Consensus}
+  alias Explorer.Chain.Shinerium.{Account, Consensus, Metadata}
   alias OpenApiSpex.{Parameter, Schema}
 
   @page_size 50
+  @api_true [api?: true]
 
   plug(OpenApiSpex.Plug.CastAndValidate, json_render_error_v2: true)
 
@@ -42,6 +45,91 @@ defmodule BlockScoutWeb.API.V2.ShineriumController do
          {:ok, false} <- AccessHelper.restricted_access?(address_hash_string, params) do
       json(conn, ShineriumView.account_json(Account.fetch(address_hash)))
     end
+  end
+
+  @metadata_hash_param %Parameter{
+    name: :metadata_hash_param,
+    in: :path,
+    schema: Schemas.General.FullHash,
+    required: true,
+    description: "The metadata hash (shnMetadataHash) that extended transactions carry"
+  }
+
+  operation :metadata,
+    summary: "Get the metadata that a Shinerium metadata hash commits to.",
+    description: """
+    The hash is the Keccak-256 of an extended transaction's metadata fields, and the node refuses a transaction
+    whose hash does not commit to its fields, so every transaction that carries the hash carries the same fields.
+    They are read from the node (`eth_getTransactionByHash`) in the first transaction that carries the hash; only
+    the hash is indexed.
+    """,
+    parameters: [@metadata_hash_param | base_params()],
+    responses: [
+      ok: {"The metadata.", "application/json", Schemas.Shinerium.Metadata},
+      unprocessable_entity: JsonErrorResponse.response(),
+      not_found: NotFoundResponse.response()
+    ]
+
+  @doc """
+  Handles GET requests to `/api/v2/shinerium/metadata/:metadata_hash_param`.
+  """
+  @spec metadata(Plug.Conn.t(), map()) :: Plug.Conn.t() | {:format, :error} | {:error, :not_found}
+  def metadata(conn, %{metadata_hash_param: hash_string}) do
+    with {:format, {:ok, metadata_hash}} <- {:format, Chain.string_to_full_hash(hash_string)},
+         {:ok, metadata} <- Metadata.fetch(metadata_hash, @api_true) do
+      json(conn, ShineriumView.metadata_json(metadata))
+    end
+  end
+
+  operation :metadata_transactions,
+    summary: "List the transactions that carry a Shinerium metadata hash, the newest first.",
+    parameters: [@metadata_hash_param | base_params()] ++ define_paging_params(["block_number", "index"]),
+    responses: [
+      ok:
+        {"Transactions.", "application/json",
+         paginated_response(
+           items: Schemas.Transaction,
+           next_page_params_example: %{"block_number" => 144_359, "index" => 0}
+         )},
+      unprocessable_entity: JsonErrorResponse.response()
+    ]
+
+  @doc """
+  Handles GET requests to `/api/v2/shinerium/metadata/:metadata_hash_param/transactions`.
+  """
+  @spec metadata_transactions(Plug.Conn.t(), map()) :: Plug.Conn.t() | {:format, :error}
+  def metadata_transactions(conn, %{metadata_hash_param: hash_string} = params) do
+    with {:format, {:ok, metadata_hash}} <- {:format, Chain.string_to_full_hash(hash_string)} do
+      full_options =
+        transaction_necessity_by_association()
+        |> Keyword.merge(BlockScoutWeb.Chain.paging_options(params))
+        |> Keyword.merge(@api_true)
+
+      transactions_plus_one = Metadata.transactions(metadata_hash, full_options)
+      {transactions, next_page_params} = paginate_list(transactions_plus_one, params, full_options[:paging_options])
+
+      conn
+      |> put_status(200)
+      |> put_view(TransactionView)
+      |> render(:transactions, %{
+        transactions: maybe_preload_ens_and_metadata(transactions, :transactions),
+        next_page_params: next_page_params
+      })
+    end
+  end
+
+  # As a block's transactions (BlockController); the chain type adds no association.
+  defp transaction_necessity_by_association do
+    address = [:scam_badge, :names, proxy_implementations_association()]
+
+    [
+      necessity_by_association: %{
+        [created_contract_address: address] => :optional,
+        [from_address: address] => :optional,
+        [to_address: address] => :optional,
+        :block => :optional
+      }
+    ]
   end
 
   @epoch_number_param %Parameter{

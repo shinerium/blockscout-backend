@@ -9,7 +9,7 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
 
   use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
 
-  alias Explorer.Chain.Shinerium.{Account, Epoch, EpochMember, Validator}
+  alias Explorer.Chain.Shinerium.{Account, Epoch, EpochMember, Metadata, Validator}
   alias Explorer.Chain.Wei
 
   # The node's post-quantum signature schemes, as crypto/pqsig of the node
@@ -48,6 +48,25 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
   @spec account_json(Account.t()) :: map()
   def account_json(%{account_key: account_key, vesting: vesting}) do
     %{account_key: account_key_json(account_key), vesting: vesting_json(vesting)}
+  end
+
+  @doc """
+  The JSON of `/api/v2/shinerium/metadata/:metadata_hash_param`: the parts of the
+  metadata that the hash commits to (`Explorer.Chain.Shinerium.Metadata`), the
+  number of transactions that carry it and the first of them.
+  """
+  @spec metadata_json(Metadata.t()) :: map()
+  def metadata_json(%{first_transaction: first} = metadata) do
+    metadata
+    |> Map.take([:transactions_count, :read_from_node, :metadata, :identity, :security, :iso20022])
+    |> Map.merge(%{
+      metadata_hash: to_string(metadata.metadata_hash),
+      first_transaction: %{
+        hash: to_string(first.hash),
+        block_number: first.block_number,
+        timestamp: first.block_timestamp
+      }
+    })
   end
 
   defp account_key_json(nil), do: nil

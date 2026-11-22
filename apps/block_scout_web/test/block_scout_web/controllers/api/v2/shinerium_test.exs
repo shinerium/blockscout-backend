@@ -378,6 +378,185 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
       end
     end
 
+    describe "metadata by its hash" do
+      setup :verify_on_exit!
+
+      # A transaction of the load generator on the test network, as the node gives it.
+      @carried "0x37e7dbb1f631d894bd75930267f12765298ead5e3db586823fee2867a403efbe"
+
+      @node_metadata %{
+        "ipfs" => "Qm7HvQPGYim878Ykzg94cEgw4T8SCh1M5YtteqxwT3i2yv",
+        "url" => "https://docs.example.org/buvjnn/24c17771903c3351",
+        "note" => "mpcxli btyxv utdztwkq bdo",
+        "deviceID" => "c7352bc3-3901-424e-836e-9b831e7fc0e7",
+        "server" => "https://erp.example.org/r2",
+        "off_chain_key" => "order-186742"
+      }
+
+      @node_iso20022 %{
+        "msg_id" => "1e74c26f-88f3-4bf5-b49e-1b4919621247",
+        "reference" => "SCT-2026-62195048",
+        "type" => "SWIFT",
+        "creditor_hash" => "b64901d274cc1d1026bba6727f4e73f4afefa3f0cb4c4acf57bda706d8380bd0"
+      }
+
+      defp carrying(block_number, metadata_hash \\ @carried) do
+        block = insert(:block, number: block_number)
+
+        :transaction
+        |> insert(shn_version: 1, shn_form: "extended", shn_metadata_hash: full_hash(metadata_hash))
+        |> with_block(block)
+      end
+
+      defp node_gives(transaction, answer) do
+        transaction_hash = to_string(transaction.hash)
+
+        expect(EthereumJSONRPC.Mox, :json_rpc, fn %{method: "eth_getTransactionByHash", params: [^transaction_hash]},
+                                                  _ ->
+          answer
+        end)
+      end
+
+      defp node_json(transaction, parts, metadata_hash \\ @carried) do
+        Map.merge(parts, %{
+          "hash" => to_string(transaction.hash),
+          "version" => 1,
+          "shnForm" => "extended",
+          "shnMetadataHash" => metadata_hash
+        })
+      end
+
+      test "the parts the hash commits to, read in the first transaction that carries it", %{conn: conn} do
+        first = carrying(100)
+        carrying(200)
+        carrying(150, @metadata_hash)
+
+        node_gives(first, {:ok, node_json(first, %{"metadata" => @node_metadata, "iso20022" => @node_iso20022})})
+
+        response = conn |> get("/api/v2/shinerium/metadata/#{@carried}") |> json_response(200)
+
+        assert response == %{
+                 "metadata_hash" => @carried,
+                 "transactions_count" => 2,
+                 "first_transaction" => %{
+                   "hash" => to_string(first.hash),
+                   "block_number" => 100,
+                   "timestamp" => DateTime.to_iso8601(first.block_timestamp)
+                 },
+                 "read_from_node" => true,
+                 "metadata" => %{
+                   "ipfs" => "Qm7HvQPGYim878Ykzg94cEgw4T8SCh1M5YtteqxwT3i2yv",
+                   "url" => "https://docs.example.org/buvjnn/24c17771903c3351",
+                   "note" => "mpcxli btyxv utdztwkq bdo",
+                   "device_id" => "c7352bc3-3901-424e-836e-9b831e7fc0e7",
+                   "server" => "https://erp.example.org/r2",
+                   "off_chain_key" => "order-186742",
+                   "location" => nil,
+                   "origin_app" => nil,
+                   "source_system" => nil
+                 },
+                 "identity" => nil,
+                 "security" => nil,
+                 "iso20022" => %{
+                   "type" => "SWIFT",
+                   "tx_type" => nil,
+                   "msg_id" => "1e74c26f-88f3-4bf5-b49e-1b4919621247",
+                   "reference" => "SCT-2026-62195048",
+                   "creditor_hash" => "b64901d274cc1d1026bba6727f4e73f4afefa3f0cb4c4acf57bda706d8380bd0"
+                 }
+               }
+      end
+
+      test "identity and security; what is no string, and names the node does not have, are left out", %{conn: conn} do
+        transaction = carrying(100)
+
+        node_gives(
+          transaction,
+          {:ok,
+           node_json(transaction, %{
+             "identity" => %{
+               "type" => "DID",
+               "did" => "did:shn:9d5d4d21f9d29d2eab70a6e63c7c5b2bc5d83f9c",
+               "biometric_hash" => "a3e0fa5c8a6fe0f55fc3238a015ddc9b04c8e37eda13ec6e61ca01f080a9733a",
+               "id_proof_cid" => "Qm9SR9mpjKt2TyZm39JtqhbjBAi92yaDLasPfKWMdrZQz5",
+               "vc" => %{"not" => "a string"},
+               "unknown" => "dropped"
+             },
+             "security" => %{
+               "hash_proof" => "0xc40e014e4fd1bdfb277195576649412a8c4e17d3b00d66459688281ab2401d33",
+               "pub_key_proof" => "0x038a5a0dcdb50f645ecbbea8dec8cd8cca02038c4eb38dd4891aa8f9355c2fda9b",
+               "verificationKey" => "vk-1"
+             }
+           })}
+        )
+
+        response = conn |> get("/api/v2/shinerium/metadata/#{@carried}") |> json_response(200)
+
+        assert response["metadata"] == nil
+        assert response["iso20022"] == nil
+
+        assert response["identity"] == %{
+                 "type" => "DID",
+                 "did" => "did:shn:9d5d4d21f9d29d2eab70a6e63c7c5b2bc5d83f9c",
+                 "vc" => nil,
+                 "biometric_hash" => "a3e0fa5c8a6fe0f55fc3238a015ddc9b04c8e37eda13ec6e61ca01f080a9733a",
+                 "id_proof_cid" => "Qm9SR9mpjKt2TyZm39JtqhbjBAi92yaDLasPfKWMdrZQz5"
+               }
+
+        assert response["security"] == %{
+                 "hash_proof" => "0xc40e014e4fd1bdfb277195576649412a8c4e17d3b00d66459688281ab2401d33",
+                 "pub_key_proof" => "0x038a5a0dcdb50f645ecbbea8dec8cd8cca02038c4eb38dd4891aa8f9355c2fda9b",
+                 "encryption_key" => nil,
+                 "verification_key" => "vk-1",
+                 "attestation" => nil
+               }
+      end
+
+      test "when the node does not give the fields, or gives another hash, every part is null", %{conn: conn} do
+        transaction = carrying(100)
+        empty = %{"metadata" => nil, "identity" => nil, "security" => nil, "iso20022" => nil}
+
+        node_gives(transaction, {:error, :timeout})
+        response = conn |> get("/api/v2/shinerium/metadata/#{@carried}") |> json_response(200)
+        assert %{"read_from_node" => false, "transactions_count" => 1} = response
+        assert Map.take(response, Map.keys(empty)) == empty
+
+        node_gives(transaction, {:ok, node_json(transaction, %{"metadata" => @node_metadata}, @metadata_hash)})
+        response = conn |> get("/api/v2/shinerium/metadata/#{@carried}") |> json_response(200)
+        assert %{"read_from_node" => false} = response
+        assert Map.take(response, Map.keys(empty)) == empty
+      end
+
+      test "a hash that no transaction carries, and one that is no hash", %{conn: conn} do
+        conn |> get("/api/v2/shinerium/metadata/#{@carried}") |> json_response(404)
+        conn |> get("/api/v2/shinerium/metadata/0x1234") |> json_response(422)
+        conn |> get("/api/v2/shinerium/metadata/0x1234/transactions") |> json_response(422)
+      end
+
+      test "the transactions that carry the hash, the newest first, page by page", %{conn: conn} do
+        oldest = carrying(100)
+        middle = carrying(200)
+        newest = carrying(300)
+        carrying(250, @metadata_hash)
+
+        response = conn |> get("/api/v2/shinerium/metadata/#{@carried}/transactions") |> json_response(200)
+
+        assert Enum.map(response["items"], & &1["hash"]) == Enum.map([newest, middle, oldest], &to_string(&1.hash))
+        assert response["next_page_params"] == nil
+        assert Enum.all?(response["items"], &(&1["shinerium"]["metadata_hash"] == @carried))
+
+        response =
+          conn
+          |> get("/api/v2/shinerium/metadata/#{@carried}/transactions", %{
+            "block_number" => "200",
+            "index" => to_string(middle.index)
+          })
+          |> json_response(200)
+
+        assert Enum.map(response["items"], & &1["hash"]) == [to_string(oldest.hash)]
+      end
+    end
+
     describe "addresses" do
       test "the total supply is the latest header's", %{conn: conn} do
         carrier()
