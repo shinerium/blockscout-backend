@@ -185,6 +185,29 @@ defmodule BlockScoutWeb.API.V2.ShineriumController do
     })
   end
 
+  operation :epoch_progress,
+    summary: "Get the Shinerium epoch that runs now and how far it has come.",
+    description: """
+    The epoch with the highest stored number, the blocks and seconds since its base at the latest block, and its
+    progress: the larger share of the epoch's two bounds (block-explorer-plan 11.30).
+    """,
+    parameters: base_params(),
+    responses: [
+      ok: {"The epoch that runs now.", "application/json", Schemas.Shinerium.Epoch.Progress},
+      not_found: NotFoundResponse.response()
+    ]
+
+  @doc """
+  Handles GET requests to `/api/v2/shinerium/epochs/current`.
+  """
+  @spec epoch_progress(Plug.Conn.t(), map()) :: Plug.Conn.t() | {:error, :not_found}
+  def epoch_progress(conn, _params) do
+    case Consensus.epoch_progress() do
+      nil -> {:error, :not_found}
+      progress -> json(conn, ShineriumView.epoch_progress_json(progress))
+    end
+  end
+
   operation :epoch,
     summary: "Get a Shinerium epoch with its committee.",
     parameters: [@epoch_number_param | base_params()],

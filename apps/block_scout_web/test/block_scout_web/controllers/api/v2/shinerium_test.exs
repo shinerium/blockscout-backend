@@ -615,6 +615,7 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
           absent_kept: if(ended?, do: 0),
           next_first: if(ended?, do: 1),
           record_complete: ended?,
+          joined_seal_nonce: if(ended?, do: 0x030203),
           joined:
             if(ended?,
               do: [
@@ -741,12 +742,64 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
         assert joined["identity"] == "0xab" <> String.duplicate("cd", 31)
         assert joined["ed_address_hash"] == "0x936b096aeda0db3195df7d3c4d6585098e5643e1"
 
+        assert response["joined_seal"] == %{
+                 "nonce" => "0x0000000000030203",
+                 "porc_generation" => 3,
+                 "porc_version" => 2,
+                 "tier" => "basic"
+               }
+
         running = conn |> get("/api/v2/shinerium/epochs/7") |> json_response(200)
         assert running["members"] |> Enum.map(&{&1["signed"], &1["reward"]}) |> Enum.uniq() == [{nil, nil}]
         assert Enum.map(running["members"], &{&1["credited"], &1["slow"]}) == [{nil, 0}, {nil, 0}, {nil, 1}]
         assert {running["joined"], running["signed"], running["removed_count"]} == {nil, nil, nil}
+        assert running["joined_seal"] == nil
 
         assert conn |> get("/api/v2/shinerium/epochs/8") |> json_response(404)
+      end
+
+      test "the running epoch's progress: the larger share of its blocks and of its time, at most 1", %{conn: conn} do
+        assert conn |> get("/api/v2/shinerium/epochs/current") |> json_response(404)
+
+        epochs()
+        # epoch 7 started at its base, block 70, at 11:10
+        started = ~U[2026-11-06 11:10:00.000000Z]
+
+        insert(:block, number: 198, timestamp: DateTime.add(started, 60))
+        response = conn |> get("/api/v2/shinerium/epochs/current") |> json_response(200)
+
+        assert %{"number" => 7, "carrier_block_number" => 70, "ended_at" => nil} = response
+        assert %{"blocks" => 128, "max_blocks" => 512, "seconds" => 60, "max_seconds" => 600} = response
+        assert response["progress"] == 0.25
+        assert response["latest_block"] == %{"number" => 198, "timestamp" => "2026-11-06T11:11:00.000000Z"}
+
+        insert(:block, number: 200, timestamp: DateTime.add(started, 450))
+
+        assert %{"blocks" => 130, "seconds" => 450} =
+                 response = conn |> get("/api/v2/shinerium/epochs/current") |> json_response(200)
+
+        assert response["progress"] == 0.75
+
+        insert(:block, number: 700, timestamp: DateTime.add(started, 700))
+        assert conn |> get("/api/v2/shinerium/epochs/current") |> json_response(200) |> Map.get("progress") == 1.0
+      end
+
+      test "the epoch's bounds are the genesis's, as configured", %{conn: conn} do
+        config = Application.get_env(:explorer, Consensus) || []
+        on_exit(fn -> Application.put_env(:explorer, Consensus, config) end)
+
+        Application.put_env(
+          :explorer,
+          Consensus,
+          Keyword.merge(config, epoch_max_blocks: 256, epoch_max_seconds: 1_200)
+        )
+
+        epochs()
+        insert(:block, number: 198, timestamp: ~U[2026-11-06 11:11:00.000000Z])
+        response = conn |> get("/api/v2/shinerium/epochs/current") |> json_response(200)
+
+        assert %{"max_blocks" => 256, "max_seconds" => 1_200} = response
+        assert response["progress"] == 0.5
       end
 
       test "the validators, the committee's first, with their epochs, signatures and rewards", %{conn: conn} do

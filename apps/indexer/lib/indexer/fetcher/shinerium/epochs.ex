@@ -242,7 +242,8 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
           absent_kept: nil,
           next_first: nil,
           joined: nil,
-          record_complete: false
+          record_complete: false,
+          joined_seal_nonce: nil
         }
 
       record ->
@@ -254,10 +255,23 @@ defmodule Indexer.Fetcher.Shinerium.Epochs do
           next_first: record["first"],
           joined: Enum.map(record["joined"] || [], &node_summary/1),
           # a node that serves them always has `slow`, null or not
-          record_complete: Map.has_key?(record, "slow")
+          record_complete: Map.has_key?(record, "slow"),
+          joined_seal_nonce: seal_nonce(next["nonce"])
         }
     end
   end
+
+  # The control block's seal nonce, which names the PoRC generation, version and
+  # tier of the candidate it seats (block-explorer-plan 11.30); nil when it seats
+  # none (a zero nonce), or for a value a bigint cannot hold.
+  defp seal_nonce("0x" <> hex) do
+    case Integer.parse(hex, 16) do
+      {nonce, ""} when nonce > 0 and nonce < 0x8000000000000000 -> nonce
+      _ -> nil
+    end
+  end
+
+  defp seal_nonce(_nonce), do: nil
 
   defp member_row({node, index}, number, record, %{correlated: correlated, slow: slow}) do
     %{

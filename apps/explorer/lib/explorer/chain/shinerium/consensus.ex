@@ -18,7 +18,8 @@ defmodule Explorer.Chain.Shinerium.Consensus do
   alias Explorer.{PagingOptions, Repo}
 
   @epoch_fields ~w(control_block_hash committee_hash started_at carrier_block_number members_count ended_at
-                   end_block_number qcs absent_kept next_first joined record_complete updated_at)a
+                   end_block_number qcs absent_kept next_first joined record_complete joined_seal_nonce
+                   updated_at)a
   @member_fields ~w(identity ed_address_hash coinbase_hash pq_key_hash location signed correlated slow
                     removal_reason updated_at)a
 
@@ -152,6 +153,68 @@ defmodule Explorer.Chain.Shinerium.Consensus do
   @spec current_epoch_number() :: non_neg_integer() | nil
   def current_epoch_number do
     Repo.one(from(e in Epoch, select: max(e.number)))
+  end
+
+  @doc """
+  The epoch that runs now and how far it has come (block-explorer-plan 11.30), or
+  nil before any epoch or block is stored. An epoch ends after at most
+  `max_blocks` blocks from its base, the carrier that started it, and at most
+  `max_seconds` from the base's time, counted by the blocks' timestamps,
+  whichever comes first (the node's specification, 10.1; `maxEpochBlocks` and
+  `maxEpochSeconds` of the genesis). So its progress is the larger of the two
+  shares at the latest block, at most 1; an epoch whose end is already stored
+  is complete.
+  """
+  @spec epoch_progress() ::
+          %{
+            epoch: Epoch.t(),
+            latest_block_number: non_neg_integer(),
+            latest_block_timestamp: DateTime.t(),
+            blocks: non_neg_integer(),
+            max_blocks: pos_integer(),
+            seconds: non_neg_integer(),
+            max_seconds: pos_integer(),
+            progress: float()
+          }
+          | nil
+  def epoch_progress do
+    with %Epoch{} = epoch <- Repo.one(from(e in Epoch, order_by: [desc: e.number], limit: 1)),
+         {number, timestamp} <-
+           Repo.one(
+             from(b in Block,
+               where: b.consensus,
+               order_by: [desc: b.number],
+               limit: 1,
+               select: {b.number, b.timestamp}
+             )
+           ) do
+      %{max_blocks: max_blocks, max_seconds: max_seconds} = epoch_limits()
+      blocks = max(number - (epoch.carrier_block_number || 0), 0)
+      seconds = max(DateTime.diff(timestamp, epoch.started_at), 0)
+
+      %{
+        epoch: epoch,
+        latest_block_number: number,
+        latest_block_timestamp: timestamp,
+        blocks: blocks,
+        max_blocks: max_blocks,
+        seconds: seconds,
+        max_seconds: max_seconds,
+        progress: progress(epoch, blocks / max_blocks, seconds / max_seconds)
+      }
+    end
+  end
+
+  defp progress(%Epoch{ended_at: nil}, by_blocks, by_time), do: Float.round(min(max(by_blocks, by_time), 1.0), 4)
+  defp progress(%Epoch{}, _by_blocks, _by_time), do: 1.0
+
+  defp epoch_limits do
+    config = Application.get_env(:explorer, __MODULE__, [])
+
+    %{
+      max_blocks: max(Keyword.get(config, :epoch_max_blocks, 512), 1),
+      max_seconds: max(Keyword.get(config, :epoch_max_seconds, 600), 1)
+    }
   end
 
   @doc """

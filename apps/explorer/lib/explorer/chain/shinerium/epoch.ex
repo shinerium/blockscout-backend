@@ -15,6 +15,11 @@ defmodule Explorer.Chain.Shinerium.Epoch do
   alias Explorer.Chain.Hash
   alias Explorer.Chain.Shinerium.EpochMember
 
+  # The node's PoRC tiers (blockseal/beaconhash/porc, Tier) and the generation in
+  # force where a chain schedules none (BaseGeneration).
+  @porc_tiers %{1 => "validator", 2 => "support", 3 => "basic"}
+  @base_porc_generation 2
+
   # The node's Eviction constants (core/protocol/controlblock.go and
   # controlblock_epoch.go): why a member leaves the committee.
   @removal_reasons %{
@@ -47,6 +52,9 @@ defmodule Explorer.Chain.Shinerium.Epoch do
   * `joined` - the nodes that join at its end, best first.
   * `record_complete` - whether the record that ends it was read from a node
     that serves its `correlated` and `slow` (block-explorer-plan 11.18).
+  * `joined_seal_nonce` - the seal nonce of the control block that ends it,
+    which names the PoRC generation, version and tier of the proof of the
+    candidate it seats; nil when it seats none (block-explorer-plan 11.30).
   """
   @primary_key {:number, :integer, autogenerate: false}
   typed_schema "shinerium_epochs" do
@@ -62,6 +70,7 @@ defmodule Explorer.Chain.Shinerium.Epoch do
     field(:next_first, :integer)
     field(:joined, {:array, :map})
     field(:record_complete, :boolean, default: false)
+    field(:joined_seal_nonce, :integer)
 
     has_many(:members, EpochMember, foreign_key: :epoch_number, references: :number)
 
@@ -81,4 +90,32 @@ defmodule Explorer.Chain.Shinerium.Epoch do
   @spec first_block_number(t()) :: non_neg_integer()
   def first_block_number(%__MODULE__{carrier_block_number: nil}), do: 1
   def first_block_number(%__MODULE__{carrier_block_number: carrier}), do: carrier + 1
+
+  @doc """
+  What the seal nonce of the control block that ends the epoch says of the
+  candidate it seats (the node's blockseal/beaconhash/porc, `SealNonce`):
+  `generation << 16 | version << 8 | tier`. The base generation, 2, writes no
+  generation byte, as before generations existed. Nil when no candidate is
+  seated.
+  """
+  @spec joined_seal(t()) ::
+          %{
+            nonce: non_neg_integer(),
+            porc_generation: non_neg_integer(),
+            porc_version: non_neg_integer(),
+            tier: String.t() | nil
+          }
+          | nil
+  def joined_seal(%__MODULE__{joined_seal_nonce: nonce}) when is_integer(nonce) and nonce > 0 do
+    generation = nonce |> Bitwise.bsr(16) |> Bitwise.band(0xFF)
+
+    %{
+      nonce: nonce,
+      porc_generation: if(generation == 0, do: @base_porc_generation, else: generation),
+      porc_version: nonce |> Bitwise.bsr(8) |> Bitwise.band(0xFF),
+      tier: Map.get(@porc_tiers, Bitwise.band(nonce, 0xFF))
+    }
+  end
+
+  def joined_seal(%__MODULE__{}), do: nil
 end

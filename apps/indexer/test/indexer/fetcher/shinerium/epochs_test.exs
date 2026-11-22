@@ -118,9 +118,15 @@ defmodule Indexer.Fetcher.Shinerium.EpochsTest do
         "timestamp" => 1_793_806_200 + number * 600,
         "previousTxBlockNumber" => previous,
         "blockType" => 3,
+        "nonce" => seal_nonce(number),
         "epoch" => record
       }
     end
+
+    # Control block 2 seats carol, sealed by a proof of PoRC generation 3,
+    # version 2, the basic tier; the others seat no candidate.
+    defp seal_nonce(2), do: "0x0000000000030203"
+    defp seal_nonce(_number), do: "0x0000000000000000"
 
     defp committee(number) when number in [0, 1], do: [@alice, @bob]
     defp committee(_number), do: [@alice, @carol]
@@ -227,10 +233,12 @@ defmodule Indexer.Fetcher.Shinerium.EpochsTest do
       assert Epoch.first_block_number(one) == 13
       assert [%{"edPublic" => carol_key, "edAddress" => _, "coinbase" => _, "location" => _}] = one.joined
       assert carol_key == @carol["edPublic"]
+      assert one.joined_seal_nonce == 0x030203
+      assert genesis.joined_seal_nonce == nil
 
       # epoch 2 runs: what control block 3 would say is not known yet
       assert %Epoch{number: 2, carrier_block_number: 22, ended_at: nil, end_block_number: nil, qcs: nil} = running
-      assert running.joined == nil
+      assert {running.joined, running.joined_seal_nonce} == {nil, nil}
 
       members = Repo.all(from(m in EpochMember, where: m.epoch_number == 1, order_by: m.index))
       assert Enum.map(members, &{&1.index, &1.signed, &1.removal_reason}) == [{0, 4, nil}, {1, 1, 2}]

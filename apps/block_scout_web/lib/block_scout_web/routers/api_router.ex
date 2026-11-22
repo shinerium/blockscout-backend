@@ -370,6 +370,7 @@ defmodule BlockScoutWeb.Routers.ApiRouter do
         get("/metadata/:metadata_hash_param", V2.ShineriumController, :metadata)
         get("/metadata/:metadata_hash_param/transactions", V2.ShineriumController, :metadata_transactions)
         get("/epochs", V2.ShineriumController, :epochs)
+        get("/epochs/current", V2.ShineriumController, :epoch_progress)
         get("/epochs/:number", V2.ShineriumController, :epoch)
         get("/validators", V2.ShineriumController, :validators)
         get("/validators/:id", V2.ShineriumController, :validator)

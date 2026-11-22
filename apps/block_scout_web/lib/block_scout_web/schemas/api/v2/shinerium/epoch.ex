@@ -91,10 +91,100 @@ defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch.Common do
       },
       absent_kept: %Schema{type: :integer, nullable: true},
       joined_count: %Schema{type: :integer, nullable: true},
+      joined_seal: joined_seal(),
       removed_count: %Schema{type: :integer, nullable: true},
       is_current: %Schema{type: :boolean, nullable: false}
     }
   end
+
+  @doc "What the seal nonce of the control block that ends an epoch says of the candidate it seats."
+  def joined_seal do
+    %Schema{
+      type: :object,
+      nullable: true,
+      description:
+        "The seal of the candidate that the control block ending the epoch seats: its nonce names the PoRC " <>
+          "generation (the base generation, 2, writes none), the proof's version and the tier. Null when it " <>
+          "seats none, while the epoch runs, or for an epoch stored before the explorer read it.",
+      properties: %{
+        nonce: %Schema{type: :string, pattern: ~r/^0x[0-9a-f]{16}$/, nullable: false},
+        porc_generation: %Schema{type: :integer, minimum: 0, nullable: false},
+        porc_version: %Schema{type: :integer, minimum: 0, nullable: false},
+        tier: %Schema{type: :string, nullable: true, description: "validator, support or basic"}
+      },
+      required: [:nonce, :porc_generation, :porc_version, :tier],
+      additionalProperties: false
+    }
+  end
+end
+
+defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch.Progress do
+  @moduledoc """
+  The Shinerium epoch that runs now and how far it has come.
+  """
+  require OpenApiSpex
+
+  alias BlockScoutWeb.Schemas.API.V2.General
+  alias OpenApiSpex.Schema
+
+  @properties %{
+    number: %Schema{type: :integer, minimum: 0, nullable: false, description: "The number of its control block."},
+    started_at: General.Timestamp,
+    ended_at: General.TimestampNullable,
+    carrier_block_number: %Schema{
+      type: :integer,
+      nullable: true,
+      description: "Its base: the block that carries its control block; null for the genesis's."
+    },
+    latest_block: %Schema{
+      type: :object,
+      nullable: false,
+      properties: %{
+        number: %Schema{type: :integer, minimum: 0, nullable: false},
+        timestamp: General.Timestamp
+      },
+      required: [:number, :timestamp],
+      additionalProperties: false
+    },
+    blocks: %Schema{type: :integer, minimum: 0, nullable: false, description: "Blocks since its base."},
+    max_blocks: %Schema{
+      type: :integer,
+      minimum: 1,
+      nullable: false,
+      description: "The most blocks an epoch has (the genesis's maxEpochBlocks)."
+    },
+    seconds: %Schema{
+      type: :integer,
+      minimum: 0,
+      nullable: false,
+      description: "Seconds since its base, by the latest block's timestamp."
+    },
+    max_seconds: %Schema{
+      type: :integer,
+      minimum: 1,
+      nullable: false,
+      description: "The longest an epoch lasts (the genesis's maxEpochSeconds)."
+    },
+    progress: %Schema{
+      type: :number,
+      minimum: 0,
+      maximum: 1,
+      nullable: false,
+      description: "How far it has come: the larger of blocks / max_blocks and seconds / max_seconds, at most 1."
+    }
+  }
+
+  OpenApiSpex.schema(%{
+    title: "ShineriumEpochProgress",
+    description: """
+    The epoch that runs now. It ends after at most `max_blocks` blocks and at most `max_seconds`, whichever
+    comes first (the node's specification, 10.1).
+    """,
+    type: :object,
+    properties: @properties,
+    required: Map.keys(@properties),
+    additionalProperties: false
+  })
 end
 
 defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch do

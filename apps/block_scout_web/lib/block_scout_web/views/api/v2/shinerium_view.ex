@@ -127,8 +127,34 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
       signed: nil,
       absent_kept: epoch.absent_kept,
       joined_count: epoch.joined && length(epoch.joined),
+      joined_seal: joined_seal_json(Epoch.joined_seal(epoch)),
       removed_count: nil,
       is_current: epoch.number == current
+    }
+  end
+
+  defp joined_seal_json(nil), do: nil
+
+  defp joined_seal_json(%{nonce: nonce} = seal) do
+    %{seal | nonce: "0x" <> (nonce |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(16, "0"))}
+  end
+
+  @doc """
+  The epoch that runs now and how far it has come (`/api/v2/shinerium/epochs/current`).
+  """
+  @spec epoch_progress_json(map()) :: map()
+  def epoch_progress_json(%{epoch: %Epoch{} = epoch} = progress) do
+    %{
+      number: epoch.number,
+      started_at: epoch.started_at,
+      ended_at: epoch.ended_at,
+      carrier_block_number: epoch.carrier_block_number,
+      latest_block: %{number: progress.latest_block_number, timestamp: progress.latest_block_timestamp},
+      blocks: progress.blocks,
+      max_blocks: progress.max_blocks,
+      seconds: progress.seconds,
+      max_seconds: progress.max_seconds,
+      progress: progress.progress
     }
   end
 

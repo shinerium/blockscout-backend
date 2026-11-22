@@ -410,6 +410,12 @@ config :explorer, Explorer.ChainSpec.GenesisData,
   rewards_contract_address: System.get_env("REWARDS_CONTRACT", "0xeca443e8e1ab29971a45a9c57a6a9875701698a5"),
   precompiled_config_path: System.get_env("PRECOMPILED_CONTRACTS_CONFIG_PATH", precompiled_config_default_path)
 
+# The bounds of a Shinerium epoch, the genesis's config.smartfhs.maxEpochBlocks and
+# maxEpochSeconds, for the running epoch's progress (block-explorer-plan 11.30).
+config :explorer, Explorer.Chain.Shinerium.Consensus,
+  epoch_max_blocks: ConfigHelper.parse_integer_env_var("SHINERIUM_EPOCH_MAX_BLOCKS", 512),
+  epoch_max_seconds: ConfigHelper.parse_integer_env_var("SHINERIUM_EPOCH_MAX_SECONDS", 600)
+
 config :explorer, Explorer.Chain.Shinerium.AddressNames,
   enabled: ConfigHelper.chain_type() == :shinerium and not is_nil(System.get_env("SHINERIUM_ADDRESS_NAMES_PATH")),
   path: System.get_env("SHINERIUM_ADDRESS_NAMES_PATH"),
