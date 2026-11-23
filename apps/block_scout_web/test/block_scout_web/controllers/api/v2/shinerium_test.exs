@@ -768,7 +768,7 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
         insert(:block, number: 198, timestamp: DateTime.add(started, 60))
         response = conn |> get("/api/v2/shinerium/epochs/current") |> json_response(200)
 
-        assert %{"number" => 7, "carrier_block_number" => 70, "ended_at" => nil} = response
+        assert %{"number" => 7, "carrier_block_number" => 70, "ended_at" => nil, "is_stored" => true} = response
         assert %{"blocks" => 128, "max_blocks" => 512, "seconds" => 60, "max_seconds" => 600} = response
         assert response["progress"] == 0.25
         assert response["latest_block"] == %{"number" => 198, "timestamp" => "2026-11-06T11:11:00.000000Z"}
@@ -782,6 +782,26 @@ defmodule BlockScoutWeb.API.V2.ShineriumTest do
 
         insert(:block, number: 700, timestamp: DateTime.add(started, 700))
         assert conn |> get("/api/v2/shinerium/epochs/current") |> json_response(200) |> Map.get("progress") == 1.0
+      end
+
+      test "a carrier indexed before the fetcher stores its epoch starts the epoch's progress", %{conn: conn} do
+        epochs()
+        # epoch 7 started at its base, block 70, at 11:10; block 582 carries control block 8
+        started = ~U[2026-11-06 11:10:00.000000Z]
+
+        insert(:block,
+          number: 582,
+          timestamp: DateTime.add(started, 240),
+          shn_block_type: "control",
+          shn_control_block_number: 8
+        )
+
+        insert(:block, number: 646, timestamp: DateTime.add(started, 270))
+        response = conn |> get("/api/v2/shinerium/epochs/current") |> json_response(200)
+
+        assert %{"number" => 8, "carrier_block_number" => 582, "is_stored" => false, "ended_at" => nil} = response
+        assert %{"blocks" => 64, "seconds" => 30, "started_at" => "2026-11-06T11:14:00.000000Z"} = response
+        assert response["progress"] == 0.125
       end
 
       test "the epoch's bounds are the genesis's, as configured", %{conn: conn} do

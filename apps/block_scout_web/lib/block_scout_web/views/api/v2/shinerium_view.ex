@@ -149,6 +149,7 @@ defmodule BlockScoutWeb.API.V2.ShineriumView do
       started_at: epoch.started_at,
       ended_at: epoch.ended_at,
       carrier_block_number: epoch.carrier_block_number,
+      is_stored: progress.stored,
       latest_block: %{number: progress.latest_block_number, timestamp: progress.latest_block_timestamp},
       blocks: progress.blocks,
       max_blocks: progress.max_blocks,

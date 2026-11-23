@@ -164,10 +164,17 @@ defmodule Explorer.Chain.Shinerium.Consensus do
   `maxEpochSeconds` of the genesis). So its progress is the larger of the two
   shares at the latest block, at most 1; an epoch whose end is already stored
   is complete.
+
+  The epochs fetcher stores a new epoch up to a minute after its control block,
+  while the carrier that brings the control block is indexed with the chain's
+  head. So a carrier above the latest stored epoch's base names the epoch that
+  runs now, its base and its start, before the fetcher stores it (`stored`
+  false; block-explorer-plan 11.31).
   """
   @spec epoch_progress() ::
           %{
             epoch: Epoch.t(),
+            stored: boolean(),
             latest_block_number: non_neg_integer(),
             latest_block_timestamp: DateTime.t(),
             blocks: non_neg_integer(),
@@ -178,7 +185,7 @@ defmodule Explorer.Chain.Shinerium.Consensus do
           }
           | nil
   def epoch_progress do
-    with %Epoch{} = epoch <- Repo.one(from(e in Epoch, order_by: [desc: e.number], limit: 1)),
+    with %Epoch{} = latest_stored <- Repo.one(from(e in Epoch, order_by: [desc: e.number], limit: 1)),
          {number, timestamp} <-
            Repo.one(
              from(b in Block,
@@ -188,12 +195,14 @@ defmodule Explorer.Chain.Shinerium.Consensus do
                select: {b.number, b.timestamp}
              )
            ) do
+      {epoch, stored?} = running_epoch(latest_stored)
       %{max_blocks: max_blocks, max_seconds: max_seconds} = epoch_limits()
       blocks = max(number - (epoch.carrier_block_number || 0), 0)
       seconds = max(DateTime.diff(timestamp, epoch.started_at), 0)
 
       %{
         epoch: epoch,
+        stored: stored?,
         latest_block_number: number,
         latest_block_timestamp: timestamp,
         blocks: blocks,
@@ -202,6 +211,31 @@ defmodule Explorer.Chain.Shinerium.Consensus do
         max_seconds: max_seconds,
         progress: progress(epoch, blocks / max_blocks, seconds / max_seconds)
       }
+    end
+  end
+
+  # The scan runs down from the head to the stored epoch's base, at most an
+  # epoch's blocks or two.
+  defp running_epoch(%Epoch{} = latest_stored) do
+    base = latest_stored.carrier_block_number || -1
+
+    carrier =
+      Repo.one(
+        from(b in Block,
+          where: b.consensus and b.number > ^base and b.shn_block_type == "control",
+          where: b.shn_control_block_number > ^latest_stored.number,
+          order_by: [desc: b.number],
+          limit: 1,
+          select: %{number: b.number, timestamp: b.timestamp, control_block_number: b.shn_control_block_number}
+        )
+      )
+
+    case carrier do
+      nil ->
+        {latest_stored, true}
+
+      %{number: carrier_number, timestamp: started_at, control_block_number: number} ->
+        {%Epoch{number: number, carrier_block_number: carrier_number, started_at: started_at}, false}
     end
   end
 

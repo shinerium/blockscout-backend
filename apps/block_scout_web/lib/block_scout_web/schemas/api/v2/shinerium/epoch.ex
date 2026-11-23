@@ -136,6 +136,13 @@ defmodule BlockScoutWeb.Schemas.API.V2.Shinerium.Epoch.Progress do
       nullable: true,
       description: "Its base: the block that carries its control block; null for the genesis's."
     },
+    is_stored: %Schema{
+      type: :boolean,
+      nullable: false,
+      description:
+        "False for the minute or so before the explorer stores an epoch whose carrier is already " <>
+          "indexed; its page answers once it is stored."
+    },
     latest_block: %Schema{
       type: :object,
       nullable: false,
